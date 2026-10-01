@@ -3,6 +3,8 @@
 A small launcher window for the [FreeRDP](https://www.freerdp.com/) remote desktop clients.
 It runs on Linux, Windows and macOS and needs nothing beyond Python and its built-in Tkinter.
 
+![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
+
 - **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
 - **Picks a client for you:** it finds the FreeRDP clients on your `PATH` and in local build trees. "(auto)" prefers the SDL client, then X11, Wayland and Windows.
 - **Form instead of flags:** display, graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
@@ -49,6 +51,13 @@ The client runs without a terminal, so it cannot ask questions while connecting,
 ```bash
 uv run --with-editable . python -m freerdp_tk   # run from the checkout
 uv build                                         # build the sdist and wheel into dist/
+```
+
+The screenshot above is rendered from demo data in a virtual X server, so no real hosts end up in it. Regenerate it after changing the UI:
+
+```bash
+xvfb-run -s "-screen 0 1400x1000x24" \
+    uv run --with pillow --with-editable . python scripts/screenshot.py docs/screenshot.png
 ```
 
 ### Releasing to PyPI
