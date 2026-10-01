@@ -1,0 +1,73 @@
+# freerdp-tk
+
+A small launcher window for the [FreeRDP](https://www.freerdp.com/) remote desktop clients.
+It runs on Linux, Windows and macOS and needs nothing beyond Python and its built-in Tkinter.
+
+- **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
+- **Picks a client for you:** it finds the FreeRDP clients on your `PATH` and in local build trees. "(auto)" prefers the SDL client, then X11, Wayland and Windows.
+- **Form instead of flags:** display, graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
+- **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
+- **Session log:** runs several sessions at once and shows each client's output.
+
+## Install
+
+```bash
+uv tool install freerdp-tk   # or: pipx install freerdp-tk
+freerdp-tk
+```
+
+You also need a FreeRDP client, for example:
+
+| Platform | Client |
+|----------|--------|
+| Debian / Ubuntu | `sudo apt install freerdp3-sdl` (or `freerdp3-x11`) |
+| Fedora | `sudo dnf install freerdp` |
+| macOS | `brew install freerdp` |
+| Windows | a FreeRDP build containing `sdl-freerdp.exe` or `wfreerdp.exe`, on your `PATH` |
+
+On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`). The Pythons that `uv` installs already include Tk.
+
+## Passwords
+
+- Passwords are **never written to disk**. They are asked for once and kept in memory until the window closes.
+- With FreeRDP 3, all arguments are passed to the client through standard input (`/args-from:stdin`). The password therefore never appears in the process list (`ps`, Task Manager).
+- FreeRDP 2 has no such option, so the password goes on the command line, and the log warns you about it.
+
+## Where things are kept
+
+| What | Where |
+|------|-------|
+| Saved connections | `~/.config/freerdp-tk/profiles.json` (Linux), `~/Library/Application Support/freerdp-tk/` (macOS), `%APPDATA%\freerdp-tk\` (Windows) |
+| Extra FreeRDP source trees to search for built clients | `FREERDP_TK_TREES`, separated like `PATH`. `~/projects/FreeRDP` is always searched. |
+
+## Limitation
+
+The client runs without a terminal, so it cannot ask questions while connecting, such as whether to trust a new certificate. Pick a certificate policy (`tofu`, `ignore` or `deny`) on the Connection tab instead. The default, `tofu`, trusts a server's certificate the first time you connect.
+
+## Development
+
+```bash
+uv run --with-editable . python -m freerdp_tk   # run from the checkout
+uv build                                         # build the sdist and wheel into dist/
+```
+
+### Releasing to PyPI
+
+Releases are published by GitHub Actions through [trusted publishing](https://docs.pypi.org/trusted-publishers/), so no API token is needed. The version is taken from the git tag.
+
+One-time setup:
+1. On PyPI, open *Your projects → Publishing → Add a new pending publisher* and enter: project `freerdp-tk`, owner `congzhangzh`, repository `freerdp-tk`, workflow `release.yml`, environment `pypi`.
+2. On GitHub, create an environment named `pypi` (*Settings → Environments*).
+
+Each release after that:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds the package, checks that it installs on Linux, Windows and macOS, and then uploads it to PyPI.
+
+## License
+
+Apache-2.0, the same license as FreeRDP.

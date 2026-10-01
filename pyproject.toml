@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "freerdp-tk"
+dynamic = ["version"]
+description = "A small cross-platform Tkinter launcher for the FreeRDP remote desktop clients"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Cong Zhang", email = "lucien.c.zhang@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = []
+keywords = ["freerdp", "rdp", "remote desktop", "tkinter", "launcher"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Networking",
+]
+
+[project.urls]
+Homepage = "https://github.com/congzhangzh/freerdp-tk"
+Issues = "https://github.com/congzhangzh/freerdp-tk/issues"
+
+# A GUI script: on Windows it starts without a console window.
+[project.gui-scripts]
+freerdp-tk = "freerdp_tk.app:main"
+
+# The version comes from the git tag: tag v0.1.0 builds 0.1.0.
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".github"]
