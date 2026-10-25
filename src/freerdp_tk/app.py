@@ -32,6 +32,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from freerdp_tk.supervise import EXIT_MARK, GRACE
+
 APP = "freerdp-tk"
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -61,6 +63,7 @@ FIELDS = {  # name -> default; everything a saved connection stores
 }
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_TIMEOUT = 30  # seconds to wait for the before command's port
+SUPERVISE = str(Path(__file__).with_name("supervise.py"))
 
 
 def config_dir() -> Path:
@@ -130,7 +133,7 @@ def expand(text: str, values: dict | None) -> str:
 
 
 def spawn(command: str) -> subprocess.Popen:
-    """Run a before/after command through the shell, as the leader of its own process group."""
+    """Run a command through the shell, as the leader of its own process group."""
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
              if IS_WIN else {"start_new_session": True})
     return subprocess.Popen(command, shell=True, stdin=subprocess.DEVNULL,
@@ -138,21 +141,153 @@ def spawn(command: str) -> subprocess.Popen:
                             errors="replace", **group)
 
 
-def kill_tree(proc: subprocess.Popen):
-    """Stop a command and everything it started.
+def kill_tree(proc: subprocess.Popen, grace: float = 3.0):
+    """Stop a command started by spawn() and what is left of its process group.
 
-    POSIX: signal its process group, which lives on as long as any member does,
-    even after the shell itself has exited. Windows: taskkill /T walks the tree
-    by parent process, so it misses children whose parent already exited.
+    POSIX: SIGTERM to the group, SIGKILL after grace seconds. Windows: taskkill
+    /T walks the tree by parent process, so it misses orphans. Only a fallback:
+    sessions contain their before command in a Helper.
     """
     if IS_WIN:
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
                        **no_console())
         return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+    for sig, wait in ((signal.SIGTERM, grace), (signal.SIGKILL, 1.0)):
+        deadline = time.monotonic() + wait
+        try:
+            os.killpg(proc.pid, sig)
+            while time.monotonic() < deadline:
+                proc.poll()  # reap the shell, or the group never looks empty
+                os.killpg(proc.pid, 0)
+                time.sleep(0.05)
+        except (ProcessLookupError, PermissionError):
+            return  # the group is gone
+
+
+class Helper:
+    """A before command: its output, its exit code, and a way to stop it.
+
+    contain=False: a plain process group, left running at the end (stop() is
+    only for aborting). contain=True: everything it starts is stopped by stop(),
+    or if freerdp-tk dies. POSIX runs it under supervise.py; Windows puts it in
+    a job object that the kernel kills when freerdp-tk's handle to it closes.
+    """
+
+    def __init__(self, command: str, contain: bool):
+        self.code: int | None = None
+        self.exited = threading.Event()
+        self.job = None
+        if contain and not IS_WIN:
+            self.proc = subprocess.Popen([sys.executable, SUPERVISE, command],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, text=True, errors="replace",
+                                         start_new_session=True)
+        elif contain:
+            self.proc = subprocess.Popen(
+                command, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, errors="replace",
+                creationflags=CREATE_SUSPENDED | subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.CREATE_NO_WINDOW)
+            self.job = win_job_for(self.proc)  # joins before it runs a single instruction
+        else:
+            self.proc = spawn(command)
+        self.supervised = contain and not IS_WIN
+        if not self.supervised:
+            threading.Thread(target=self._wait, daemon=True).start()
+
+    def _wait(self):
+        self.code = self.proc.wait()
+        self.exited.set()
+
+    def lines(self):
+        """The command's output, line by line, until no process holds the pipe any more."""
+        for line in self.proc.stdout:
+            if self.supervised and line.startswith(EXIT_MARK):
+                self.code = int(line[len(EXIT_MARK):])
+                self.exited.set()
+            else:
+                yield line.rstrip("\n")
+        self.exited.set()  # a supervisor that died without a mark
+
+    def wait(self) -> int:
+        self.exited.wait()
+        return -1 if self.code is None else self.code
+
+    def running(self) -> bool:
+        return not self.exited.is_set()
+
+    def stop(self):
+        """Stop the command and everything it started; returns once they are gone."""
+        if self.supervised:
+            try:
+                self.proc.stdin.close()  # the supervisor's signal to stop it all
+                self.proc.wait(timeout=GRACE + 10)
+            except (OSError, subprocess.TimeoutExpired):
+                kill_tree(self.proc)
+        elif self.job:
+            win_kill_job(self.job)
+            self.job = None
+        else:
+            kill_tree(self.proc)
+
+
+if IS_WIN:
+    import ctypes
+    from ctypes import wintypes
+
+    CREATE_SUSPENDED = 0x4
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _ntdll = ctypes.WinDLL("ntdll")
+    _kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    _kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    _kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                                  wintypes.DWORD]
+    _kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    _kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+
+    class _BasicLimits(ctypes.Structure):  # JOBOBJECT_BASIC_LIMIT_INFORMATION
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+    class _ExtendedLimits(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        _fields_ = [("Basic", _BasicLimits), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    def win_job_for(proc: subprocess.Popen):
+        """Put a process started with CREATE_SUSPENDED in a new kill-on-close job, then resume it.
+
+        Its children join the job as they are born and cannot leave it (no
+        breakaway allowed). Only freerdp-tk holds the job's handle: when that
+        closes, even because freerdp-tk crashed, the kernel ends the whole job.
+        Returns None, after resuming, when the job cannot be set up.
+        """
+        handle = int(proc._handle)
+        job = _kernel32.CreateJobObjectW(None, None)
+        info = _ExtendedLimits()
+        info.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        ok = job and _kernel32.SetInformationJobObject(job, 9, ctypes.byref(info),
+                                                       ctypes.sizeof(info))  # 9: extended
+        ok = ok and _kernel32.AssignProcessToJobObject(job, handle)
+        _ntdll.NtResumeProcess(handle)
+        if ok:
+            return job
+        if job:
+            _kernel32.CloseHandle(job)
+        return None
+
+    def win_kill_job(job):
+        _kernel32.TerminateJobObject(job, 1)
+        _kernel32.CloseHandle(job)
+else:
+    CREATE_SUSPENDED = 0
 
 
 def split_extra(text: str) -> list[str]:
@@ -251,17 +386,21 @@ class Session:
         if self.client and self.client.poll() is None:
             self.client.terminate()
         elif self.helper and not self.v["pre_async"]:
-            kill_tree(self.helper)
+            threading.Thread(target=self.helper.stop, daemon=True).start()
 
     def stop_helper(self):
         if self.helper and self.v["pre_cleanup"]:
-            kill_tree(self.helper)
+            self.helper.stop()
             self.say("before: stopped")
             self.helper = None
 
     def _pump(self, proc: subprocess.Popen, prefix: str = ""):
         for line in proc.stdout:
             self.say(prefix + line.rstrip("\n"))
+
+    def _pump_helper(self, helper: Helper):
+        for line in helper.lines():
+            self.say("before: " + line)
 
     def _run(self):
         try:
@@ -278,18 +417,18 @@ class Session:
             return True
         self.say(f"before: {command}")
         try:
-            self.helper = spawn(command)
+            self.helper = Helper(command, contain=self.v["pre_cleanup"])
         except OSError as e:
             self.say(f"before: cannot start: {e}")
             return False
+        pump = threading.Thread(target=self._pump_helper, args=(self.helper,), daemon=True)
+        pump.start()
         if not self.v["pre_async"]:
-            self._pump(self.helper, "before: ")
             code = self.helper.wait()
-            self.helper = None
+            pump.join(timeout=1)  # its last lines first, unless something it left holds the pipe
             if code:
                 self.say(f"before: failed with code {code}, not connecting")
             return code == 0
-        threading.Thread(target=self._pump, args=(self.helper, "before: "), daemon=True).start()
         wait = expand(self.v["pre_wait"].strip(), self.values)
         return not wait or self._wait_for(wait)
 
@@ -300,8 +439,8 @@ class Session:
             return False
         deadline = time.monotonic() + WAIT_TIMEOUT
         while time.monotonic() < deadline and not self.stopping:
-            if self.helper.poll() is not None:
-                self.say(f"before: exited with code {self.helper.returncode} before "
+            if not self.helper.running():
+                self.say(f"before: exited with code {self.helper.wait()} before "
                          f"{address} answered, not connecting")
                 return False
             try:

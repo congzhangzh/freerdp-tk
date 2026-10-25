@@ -40,7 +40,10 @@ On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`
 The *Before / after* tab runs your own commands around a session:
 
 - **Before connecting:** runs to the end before the client starts; if it fails, the client does not start. Tick *Keep it running during the session* for a command that stays up beside the session, such as a tunnel. *Then wait until* `host:port` holds the client back until that port answers.
-- **Stop it when the session ends:** ends the before command and everything it started (its process group; its process tree on Windows).
+- **Stop it when the session ends:** ends the before command and everything it started, also if freerdp-tk itself crashes or is killed:
+  - **Linux:** a small supervisor runs the command as a *child subreaper*, so even daemons that fork twice and leave the process group stay under it. Each is sent SIGTERM, then SIGKILL after 3 seconds.
+  - **Windows:** the command runs in a job object that the system closes, and with it everything inside, when freerdp-tk lets go of it.
+  - **macOS:** the same supervisor, but macOS has no subreaper: a daemon that forks twice and leaves the process group survives.
 - **After disconnecting:** runs once the session is over, however it ended.
 - **Client proxy:** passed to the client as `/proxy:`.
 

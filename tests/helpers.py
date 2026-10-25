@@ -10,8 +10,10 @@ Two ways to act on a widget, from the inside out:
   Tk reports it: winfo_rootx/rooty is the widget's top-left corner on screen.
 """
 
+import os
 import shutil
 import subprocess
+import sys
 import time
 import tkinter as tk
 
@@ -99,3 +101,19 @@ def xdo_type(ui, widget, text):
     xdo_click(ui, widget)  # a click gives the entry the keyboard focus
     subprocess.run(["xdotool", "type", "--delay", "5", text], check=True)
     ui.root.update()
+
+
+def alive(pid: int) -> bool:
+    """Whether the process still runs (a zombie counts as gone)."""
+    if sys.platform == "win32":  # os.kill(pid, 0) would terminate it on Windows
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                             capture_output=True, text=True).stdout
+        return str(pid) in out.split()
+    if os.path.exists("/proc"):
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                return f.read().split(")")[-1].split()[0] != "Z"
+        except FileNotFoundError:
+            return False
+    out = subprocess.run(["ps", "-p", str(pid), "-o", "stat="], capture_output=True, text=True)
+    return out.returncode == 0 and not out.stdout.strip().startswith("Z")
