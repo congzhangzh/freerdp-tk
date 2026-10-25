@@ -71,8 +71,8 @@ One-time setup:
 Each release after that:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag 0.2.0          # the version, no prefix
+git push origin 0.2.0
 ```
 
 The workflow builds the package, checks that it installs on Linux, Windows and macOS, and then uploads it to PyPI.

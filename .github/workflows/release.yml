@@ -1,11 +1,12 @@
-# Builds on every push and pull request. Pushing a tag like v0.1.0 also
-# publishes that version to PyPI through trusted publishing (no API token).
+# Builds on every push and pull request. Pushing a release tag, the version
+# with no prefix (0.2.0; v0.1.x before 2026-10-25), also publishes that
+# version to PyPI through trusted publishing (no API token).
 name: release
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
+    tags: ["[0-9]*", "v*"]
   pull_request:
 
 env:
@@ -46,7 +47,7 @@ jobs:
             "import freerdp_tk, freerdp_tk.app as a; print(freerdp_tk.__version__, a.find_clients())"
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [build, smoke]
     runs-on: ubuntu-latest
     environment: pypi
