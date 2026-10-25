@@ -75,7 +75,10 @@ def pids(tmp_path, timeout=15.0) -> dict[str, int]:
 def gone(found: dict[str, int], timeout=15.0) -> dict[str, int]:
     """Those still alive after up to timeout seconds."""
     end = time.monotonic() + timeout
-    while (left := {k: p for k, p in found.items() if alive(p)}) and time.monotonic() < end:
+    while time.monotonic() < end:
+        left = {k: p for k, p in found.items() if alive(p)}
+        if set(left) <= expected_escapes():
+            break
         time.sleep(0.2)
     return left
 

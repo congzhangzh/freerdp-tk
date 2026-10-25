@@ -207,7 +207,8 @@ class Helper:
                 self.exited.set()
             else:
                 yield line.rstrip("\n")
-        self.exited.set()  # a supervisor that died without a mark
+        if self.supervised:  # a supervisor that died without a mark; else _wait has the code
+            self.exited.set()
 
     def wait(self) -> int:
         self.exited.wait()
