@@ -1,6 +1,8 @@
-# Runs the tests on every push and pull request, on the newest Ubuntu release
-# (the ubuntu:rolling image follows new releases by itself) with its own Python,
-# Tk and FreeRDP 3 client, in a virtual X server.
+# Runs the tests on every push and pull request:
+# - linux (x64): the newest Ubuntu release (ubuntu:rolling follows new releases by
+#   itself) with its own Python, Tk and FreeRDP 3 client, in a virtual X server
+# - windows (x64) and macos (arm64): uv's Python, which includes Tk, on the
+#   runners' own desktop; no FreeRDP client there, so the real-client test skips
 name: test
 
 on:
@@ -9,7 +11,7 @@ on:
   pull_request:
 
 jobs:
-  test:
+  linux:
     runs-on: ubuntu-latest
     container: ubuntu:rolling
     steps:
@@ -22,3 +24,16 @@ jobs:
       - run: xvfb-run -a -s "-screen 0 1400x1000x24" python3 -m pytest -v -rs
         env:
           PYTHONPATH: src
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv run --group test pytest -v -rs

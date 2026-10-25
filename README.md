@@ -35,6 +35,27 @@ On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`
 - With FreeRDP 3, all arguments are passed to the client through standard input (`/args-from:stdin`). The password therefore never appears in the process list (`ps`, Task Manager).
 - FreeRDP 2 has no such option, so the password goes on the command line, and the log warns you about it.
 
+## Before and after commands (SSH tunnels and more)
+
+The *Before / after* tab runs your own commands around a session:
+
+- **Before connecting:** runs to the end before the client starts; if it fails, the client does not start. Tick *Keep it running during the session* for a command that stays up beside the session, such as a tunnel. *Then wait until* `host:port` holds the client back until that port answers.
+- **Stop it when the session ends:** ends the before command and everything it started (its process group; its process tree on Windows).
+- **After disconnecting:** runs once the session is over, however it ended.
+- **Client proxy:** passed to the client as `/proxy:`.
+
+Placeholders work in all of these and in the extra arguments: `%h` host, `%p` port, `%u` user, `%L` a free local port picked for this session, `%%` a percent sign.
+
+**Fill in: SSH tunnel…** sets it all up for the common case. It asks for a jump host and fills in:
+
+```
+before:      ssh -N -D 127.0.0.1:%L -o ExitOnForwardFailure=yes -o BatchMode=yes me@bastion
+wait until:  127.0.0.1:%L
+proxy:       socks5://127.0.0.1:%L
+```
+
+The RDP server then only has to be reachable from the jump host, and the client still connects by its real name, so the certificate check is unchanged. ssh runs without a terminal, so it must log in with a key or an agent, and it must already know the jump host's key (connect once with `ssh` in a terminal).
+
 ## Where things are kept
 
 | What | Where |

@@ -8,6 +8,12 @@ The "(auto)" client picks the best client found, preferring the SDL client.
 On FreeRDP 3 the arguments are piped in with /args-from:stdin, so the
 password never shows up in the process list. FreeRDP 2 has no such option
 and gets /p:<password> on the command line instead.
+
+Each connection can run a command before the client starts (to open an SSH
+tunnel, say) and one after it ends. The before command either runs to the end
+first, or keeps running beside the session, optionally until a port answers,
+and is then stopped together with everything it started (its process group,
+or its process tree on Windows).
 """
 
 import json
@@ -16,9 +22,12 @@ import queue
 import re
 import shlex
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -47,8 +56,11 @@ FIELDS = {  # name -> default; everything a saved connection stores
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
     "multimon": False, "gfx": "(default)", "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
-    "extra": "",
+    "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
+    "pre_wait": "", "post": "",
 }
+PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
+WAIT_TIMEOUT = 30  # seconds to wait for the before command's port
 
 
 def config_dir() -> Path:
@@ -106,8 +118,48 @@ def no_console() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
 
 
-def build_args(v: dict, password: str) -> list[str]:
-    """Client arguments for the connection settings v, without the program name."""
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def expand(text: str, values: dict | None) -> str:
+    """Fill in %h, %p, %u, %L and %%; any other % stays. No values: leave text as it is."""
+    return re.sub(r"%([hpuL%])", lambda m: values[m.group(1)], text) if values else text
+
+
+def spawn(command: str) -> subprocess.Popen:
+    """Run a before/after command through the shell, as the leader of its own process group."""
+    group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW}
+             if IS_WIN else {"start_new_session": True})
+    return subprocess.Popen(command, shell=True, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                            errors="replace", **group)
+
+
+def kill_tree(proc: subprocess.Popen):
+    """Stop a command and everything it started.
+
+    POSIX: signal its process group, which lives on as long as any member does,
+    even after the shell itself has exited. Windows: taskkill /T walks the tree
+    by parent process, so it misses children whose parent already exited.
+    """
+    if IS_WIN:
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True,
+                       **no_console())
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
+    """Client arguments for the connection settings v, without the program name.
+
+    values fills the placeholders in the proxy and the extra arguments.
+    """
     v = {**FIELDS, **v}
     args = [f"/v:{v['host'].strip()}"]
     if v["port"].strip():
@@ -120,6 +172,8 @@ def build_args(v: dict, password: str) -> list[str]:
         args.append(f"/p:{password}")
     if v["gateway"].strip():
         args.append(f"/gateway:g:{v['gateway'].strip()}")
+    if v["proxy"].strip():
+        args.append(f"/proxy:{expand(v['proxy'].strip(), values)}")
     args.append(f"/cert:{v['cert']}")
     if v["fullscreen"]:
         args.append("/f")
@@ -145,7 +199,7 @@ def build_args(v: dict, password: str) -> list[str]:
         args.append(f"/drive:{Path(path).name or 'share'},{path}")
     if v["log_level"] != "(default)":
         args.append(f"/log-level:{v['log_level']}")
-    return args + shlex.split(v["extra"], posix=not IS_WIN)
+    return args + shlex.split(expand(v["extra"], values), posix=not IS_WIN)
 
 
 def join_command(argv: list[str]) -> str:
@@ -153,17 +207,127 @@ def join_command(argv: list[str]) -> str:
 
 
 class Session:
-    """One running client, with a thread that forwards its output to a queue."""
+    """One connection, run from start to end by its own thread.
 
-    def __init__(self, label: str, proc: subprocess.Popen, out: queue.Queue):
-        self.label = label
-        self.proc = proc
-        threading.Thread(target=self._pump, args=(out,), daemon=True).start()
+    The steps: the before command, the client, stopping the before command,
+    the after command. Every line of output goes to the queue, and (self, None)
+    when the session is over.
+    """
 
-    def _pump(self, out: queue.Queue):
-        for line in self.proc.stdout:
-            out.put((self, line.rstrip("\n")))
-        out.put((self, None))
+    count = 0
+
+    def __init__(self, name: str, v: dict, values: dict, argv: list[str], stdin: str | None,
+                 notes: list[str], out: queue.Queue):
+        Session.count += 1
+        self.label = f"{name} [{Session.count}]"
+        self.v, self.values, self.argv, self.stdin, self.notes = v, values, argv, stdin, notes
+        quote = (lambda x: x) if IS_WIN else shlex.quote
+        self.shell_values = {k: quote(x) if k in "hu" else x for k, x in values.items()}
+        self.out = out
+        self.client: subprocess.Popen | None = None
+        self.helper: subprocess.Popen | None = None  # the before command
+        self.stopping = False
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def say(self, text: str):
+        self.out.put((self, text))
+
+    def stop(self):
+        """Disconnect: end the client, or the before command it is still waiting for."""
+        self.stopping = True
+        if self.client and self.client.poll() is None:
+            self.client.terminate()
+        elif self.helper and not self.v["pre_async"]:
+            kill_tree(self.helper)
+
+    def stop_helper(self):
+        if self.helper and self.v["pre_cleanup"]:
+            kill_tree(self.helper)
+            self.say("before: stopped")
+            self.helper = None
+
+    def _pump(self, proc: subprocess.Popen, prefix: str = ""):
+        for line in proc.stdout:
+            self.say(prefix + line.rstrip("\n"))
+
+    def _run(self):
+        try:
+            if self._before() and not self.stopping:
+                self._connect()
+        finally:
+            self.stop_helper()
+            self._after()
+            self.out.put((self, None))
+
+    def _before(self) -> bool:
+        command = expand(self.v["pre"].strip(), self.shell_values)
+        if not command:
+            return True
+        self.say(f"before: {command}")
+        try:
+            self.helper = spawn(command)
+        except OSError as e:
+            self.say(f"before: cannot start: {e}")
+            return False
+        if not self.v["pre_async"]:
+            self._pump(self.helper, "before: ")
+            code = self.helper.wait()
+            self.helper = None
+            if code:
+                self.say(f"before: failed with code {code}, not connecting")
+            return code == 0
+        threading.Thread(target=self._pump, args=(self.helper, "before: "), daemon=True).start()
+        wait = expand(self.v["pre_wait"].strip(), self.values)
+        return not wait or self._wait_for(wait)
+
+    def _wait_for(self, address: str) -> bool:
+        host, _, port = address.rpartition(":")
+        if not host or not port.isdigit():
+            self.say(f"before: wait for '{address}': expected host:port")
+            return False
+        deadline = time.monotonic() + WAIT_TIMEOUT
+        while time.monotonic() < deadline and not self.stopping:
+            if self.helper.poll() is not None:
+                self.say(f"before: exited with code {self.helper.returncode} before "
+                         f"{address} answered, not connecting")
+                return False
+            try:
+                socket.create_connection((host.strip("[]"), int(port)), timeout=1).close()
+                return True
+            except OSError:
+                time.sleep(0.2)
+        if not self.stopping:
+            self.say(f"before: {address} did not answer within {WAIT_TIMEOUT} s, not connecting")
+        return False
+
+    def _connect(self):
+        try:
+            self.client = subprocess.Popen(self.argv, stdin=subprocess.PIPE,
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                           text=True, errors="replace", **no_console())
+        except OSError as e:
+            self.say(f"cannot start {self.argv[0]}: {e}")
+            return
+        if self.stdin is not None:
+            self.client.stdin.write(self.stdin)
+        self.client.stdin.close()  # nothing is left to answer prompts, so they fail fast
+        for note in self.notes:
+            self.say(note)
+        self._pump(self.client)
+        self.say(f"exited with code {self.client.wait()}")
+
+    def _after(self):
+        command = expand(self.v["post"].strip(), self.shell_values)
+        if not command:
+            return
+        self.say(f"after: {command}")
+        try:
+            proc = spawn(command)
+        except OSError as e:
+            self.say(f"after: cannot start: {e}")
+            return
+        self._pump(proc, "after: ")
+        self.say(f"after: exited with code {proc.wait()}")
 
 
 class App(ttk.Frame):
@@ -220,6 +384,7 @@ class App(ttk.Frame):
         tabs.add(self._connection_tab(tabs), text="Connection")
         tabs.add(self._display_tab(tabs), text="Display")
         tabs.add(self._devices_tab(tabs), text="Devices")
+        tabs.add(self._hooks_tab(tabs), text="Before / after")
         tabs.add(self._advanced_tab(tabs), text="Advanced")
 
         ttk.Label(self, text="Command").pack(anchor="w", pady=(8, 0))
@@ -321,6 +486,33 @@ class App(ttk.Frame):
                   foreground="gray").grid(row=2, column=1, sticky="w")
         return f
 
+    def _hooks_tab(self, parent):
+        f = self._grid(parent)
+        self._row(f, 0, "Before connecting", ttk.Entry(f, textvariable=self.vars["pre"]))
+        self._check(f, 1, "Keep it running during the session (don't wait for it to end)",
+                    "pre_async")
+        self._check(f, 2, "Stop it, and all it started, when the session ends", "pre_cleanup")
+        self._row(f, 3, "Then wait until", ttk.Entry(f, textvariable=self.vars["pre_wait"]))
+        self._row(f, 4, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]))
+        self._row(f, 5, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]))
+        ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=6, column=1, sticky="w")
+        ttk.Button(f, text="Fill in: SSH tunnel…", command=self._ssh_tunnel).grid(
+            row=7, column=1, sticky="w", pady=(6, 0))
+        return f
+
+    def _ssh_tunnel(self):
+        """The common case in one step: a SOCKS tunnel through an SSH jump host."""
+        jump = simpledialog.askstring(
+            APP, "SSH jump host: user@host[:port], or a Host from ~/.ssh/config", parent=self.root)
+        if not jump or not jump.strip():
+            return
+        self.vars["pre"].set("ssh -N -D 127.0.0.1:%L -o ExitOnForwardFailure=yes "
+                             f"-o BatchMode=yes {jump.strip()}")
+        self.vars["pre_async"].set(True)
+        self.vars["pre_cleanup"].set(True)
+        self.vars["pre_wait"].set("127.0.0.1:%L")
+        self.vars["proxy"].set("socks5://127.0.0.1:%L")
+
     # ---- command line -----------------------------------------------------
 
     def _form(self) -> dict:
@@ -384,8 +576,10 @@ class App(ttk.Frame):
             if password is None:
                 return False
             self.passwords[name] = password
+        values = {"h": v["host"].strip(), "p": v["port"].strip() or "3389",
+                  "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
-            args = build_args(v, password or "")
+            args = build_args(v, password or "", values)
         except ValueError as e:
             messagebox.showerror(APP, f"{name}: extra arguments: {e}")
             return False
@@ -397,32 +591,19 @@ class App(ttk.Frame):
             self.versions[client] = client_major_version(client)
         via_stdin = self.versions[client] >= 3
         argv = [client, "/args-from:stdin"] if via_stdin else [client, *args]
-        try:
-            proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True, errors="replace",
-                                    **no_console())
-        except OSError as e:
-            messagebox.showerror(APP, f"Cannot start {client}:\n{e}")
-            return False
-        if via_stdin:
-            proc.stdin.write("".join(a + "\n" for a in args))
-        proc.stdin.close()  # nothing is left to answer prompts, so they fail fast
-
-        session = Session(f"{name} [{proc.pid}]", proc, self.output)
+        notes = [] if via_stdin else [
+            "note: not a FreeRDP 3 client, the password is on the command line"]
+        shown = build_args(v, HIDDEN if password else "", values)
+        notes.append(f"started: {join_command([client, *shown])}")
+        stdin = "".join(a + "\n" for a in args) if via_stdin else None
+        session = Session(name, v, values, argv, stdin, notes, self.output)
         self.sessions.append(session)
         self.running_list.insert("end", session.label)
-        if not via_stdin:
-            self._log("note: not a FreeRDP 3 client, the password is on the command line",
-                      session)
-        shown = build_args(v, HIDDEN if password else "")
-        self._log(f"started: {join_command([client, *shown])}", session)
         return True
 
     def _disconnect(self):
         for index in self.running_list.curselection():
-            proc = self.sessions[index].proc
-            if proc.poll() is None:
-                proc.terminate()
+            self.sessions[index].stop()
 
     def _drain_output(self):
         try:
@@ -430,12 +611,10 @@ class App(ttk.Frame):
                 session, line = self.output.get_nowait()
                 if line is not None:
                     self._log(line, session)
-                    continue
-                code = session.proc.wait()
-                self._log(f"exited with code {code}", session)
-                index = self.sessions.index(session)
-                self.sessions.pop(index)
-                self.running_list.delete(index)
+                elif session in self.sessions:
+                    index = self.sessions.index(session)
+                    self.sessions.pop(index)
+                    self.running_list.delete(index)
         except queue.Empty:
             pass
         self.after(100, self._drain_output)
@@ -448,12 +627,13 @@ class App(ttk.Frame):
             self.log.see("end")
 
     def _quit(self):
-        running = [s for s in self.sessions if s.proc.poll() is None]
+        running = self.sessions
         if running and not messagebox.askyesno(
                 APP, f"{len(running)} session(s) still running. Close them and quit?"):
             return
-        for s in running:
-            s.proc.terminate()
+        for s in running:  # their after commands do not run: the window is going away
+            s.stop()
+            s.stop_helper()
         self.root.destroy()
 
     # ---- saved connections ------------------------------------------------

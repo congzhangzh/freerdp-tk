@@ -9,7 +9,7 @@ from helpers import (button, click, entry_for, has_xdotool, log_text, pump, type
 
 
 def check_session(ui, record):
-    pump(ui, lambda: "exited with code 7" in log_text(ui))
+    pump(ui, lambda: ui.running_list.size() == 0)
     got = json.loads(record.read_text())
     assert got["argv"][1:] == ["/args-from:stdin"]  # nothing secret in the process list
     lines = got["stdin"].splitlines()
@@ -49,7 +49,8 @@ def test_save_and_reload_a_connection(make_ui, fake_client, home):
     type_into(ui, entry_for(ui, ui.password), "s3cret!")
     click(ui, button(ui, "Save"))
     assert ui.saved_list.get(0, "end") == ("lab",)
-    stored = (home / "cfg" / "freerdp-tk" / "profiles.json").read_text()
+    stored = ui.store.read_text()
+    assert ui.store.is_relative_to(home)  # the throwaway one, not the real profiles
     assert "rdp.example.com" in stored and "s3cret" not in stored  # never on disk
 
     again = make_ui()  # a second window reads the same file
