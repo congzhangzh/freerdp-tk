@@ -13,8 +13,17 @@ def test_password_and_options():
 
 
 def test_extra_arguments_are_split_like_a_shell():
-    assert build_args({"host": "h", "extra": "/scale:140 '/t:a b'"}, "")[-2:] == [
-        "/scale:140", "/t:a b"]
+    assert build_args({"host": "h", "extra": "/scale:140 '/t:a b' /t:\"c d\""}, "")[-3:] == [
+        "/scale:140", "/t:a b", "/t:c d"]
+
+
+def test_backslashes_in_extra_arguments(monkeypatch):
+    from freerdp_tk import app
+    monkeypatch.setattr(app, "IS_WIN", True)  # a path separator there, not an escape
+    assert app.split_extra(r'/drive:s,C:\share "/t:a b"') == [r"/drive:s,C:\share", "/t:a b"]
+    monkeypatch.setattr(app, "IS_WIN", False)
+    assert app.split_extra(r"/t:a\ b") == ["/t:a b"]
+    assert app.split_extra("/t:#1 /scale:140") == ["/t:#1", "/scale:140"]
 
 
 def test_drive_is_named_after_the_folder():

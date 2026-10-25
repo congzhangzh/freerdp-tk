@@ -155,6 +155,19 @@ def kill_tree(proc: subprocess.Popen):
         pass
 
 
+def split_extra(text: str) -> list[str]:
+    """Split the extra arguments like a shell: quotes group words and are removed.
+
+    On Windows a backslash is a path separator, not an escape, so C:\\share stays.
+    """
+    lexer = shlex.shlex(text, posix=True)
+    lexer.whitespace_split = True
+    lexer.commenters = ""  # a # is text, as with shlex.split
+    if IS_WIN:
+        lexer.escape = ""
+    return list(lexer)
+
+
 def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
     """Client arguments for the connection settings v, without the program name.
 
@@ -199,7 +212,7 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
         args.append(f"/drive:{Path(path).name or 'share'},{path}")
     if v["log_level"] != "(default)":
         args.append(f"/log-level:{v['log_level']}")
-    return args + shlex.split(expand(v["extra"], values), posix=not IS_WIN)
+    return args + split_extra(expand(v["extra"], values))
 
 
 def join_command(argv: list[str]) -> str:
