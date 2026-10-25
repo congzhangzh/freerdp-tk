@@ -39,3 +39,9 @@ source = "vcs"
 
 [tool.hatch.build.targets.sdist]
 exclude = [".github"]
+
+[dependency-groups]
+test = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,24 @@
+# Runs the tests on every push and pull request, on the newest Ubuntu release
+# (the ubuntu:rolling image follows new releases by itself) with its own Python,
+# Tk and FreeRDP 3 client, in a virtual X server.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: ubuntu:rolling
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Python, Tk, pytest, Xvfb, xdotool and the FreeRDP SDL client
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+            python3 python3-tk python3-pytest xvfb xauth xdotool freerdp3-sdl
+      - run: xvfb-run -a -s "-screen 0 1400x1000x24" python3 -m pytest -v -rs
+        env:
+          PYTHONPATH: src
