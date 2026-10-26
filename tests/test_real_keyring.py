@@ -2,7 +2,8 @@
 
 It writes a throwaway entry to the keyring of whoever runs it, so it is off
 by default. CI turns it on: Linux in an isolated D-Bus session with its own
-GNOME Keyring, Windows in the runner's Credential Manager.
+GNOME Keyring, Windows in the runner's Credential Manager, macOS in the
+runner's login Keychain.
 """
 
 import os
