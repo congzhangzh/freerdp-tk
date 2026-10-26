@@ -3,7 +3,10 @@ import stat
 import sys
 import tkinter as tk
 
+import keyring
 import pytest
+from keyring.backend import KeyringBackend
+from keyring.errors import PasswordDeleteError
 
 # Stands in for a FreeRDP 3 client: answers /version, then records what it was
 # given (argv and stdin) and exits with code 7, so a test can check both ends.
@@ -17,6 +20,36 @@ with open(os.environ["FAKE_RECORD"], "w") as f:
 print("[INFO][fake] - connected")
 sys.exit(7)
 """
+
+
+class MemoryKeyring(KeyringBackend):
+    """A keyring in a dict, counted as safe for the tests."""
+
+    priority = 1
+
+    def __init__(self):
+        super().__init__()
+        self.items: dict[tuple[str, str], str] = {}
+
+    def get_password(self, service, username):
+        return self.items.get((service, username))
+
+    def set_password(self, service, username, password):
+        self.items[(service, username)] = password
+
+    def delete_password(self, service, username):
+        if self.items.pop((service, username), None) is None:
+            raise PasswordDeleteError(service)
+
+
+@pytest.fixture(autouse=True)
+def memory_keyring(monkeypatch):
+    """Every test gets an empty keyring of its own, never the real one."""
+    from freerdp_tk import credentials
+    store = MemoryKeyring()
+    keyring.set_keyring(store)
+    monkeypatch.setattr(credentials, "SAFE", credentials.SAFE | {f"{__name__}.MemoryKeyring"})
+    return store
 
 
 @pytest.fixture

@@ -11,7 +11,9 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Cong Zhang", email = "lucien.c.zhang@gmail.com" }]
 requires-python = ">=3.10"
-dependencies = []
+# The system keyring for saved passwords; on Linux it brings SecretStorage
+# and cryptography along.
+dependencies = ["keyring>=25"]
 keywords = ["freerdp", "rdp", "remote desktop", "tkinter", "launcher"]
 classifiers = [
     "Development Status :: 3 - Alpha",

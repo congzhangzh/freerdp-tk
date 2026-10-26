@@ -1,7 +1,7 @@
 # freerdp-tk
 
 A small launcher window for the [FreeRDP](https://www.freerdp.com/) remote desktop clients.
-It runs on Linux, Windows and macOS and needs nothing beyond Python and its built-in Tkinter.
+It runs on Linux, Windows and macOS and needs Python with its built-in Tkinter, plus the [keyring](https://pypi.org/project/keyring/) package, which installs with it.
 
 ![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
 
