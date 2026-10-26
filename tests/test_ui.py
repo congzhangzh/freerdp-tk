@@ -1,6 +1,7 @@
 """The real window, driven like a user, with the fake client recording what it gets."""
 
 import json
+import os
 
 import pytest
 
@@ -72,7 +73,8 @@ def test_only_sdl_clients_are_found(home, monkeypatch):
     program(build / "SDL" / "SDL2" / "sdl2-freerdp")
     sdl3 = program(build / "SDL" / "SDL3" / "sdl3-freerdp")
     monkeypatch.setenv("PATH", str(home / "bin"))
-    assert app.find_clients() == [on_path[2], sdl3]
+    found = [os.path.normcase(c) for c in app.find_clients()]  # which() gives PATHEXT's .EXE
+    assert found == [os.path.normcase(on_path[2]), os.path.normcase(sdl3)]
 
 
 def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):
