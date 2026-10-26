@@ -18,6 +18,7 @@ and is then stopped together with everything it started (its process group,
 or its process tree on Windows).
 """
 
+import functools
 import json
 import os
 import queue
@@ -539,7 +540,9 @@ class App(ttk.Frame):
         self.output: queue.Queue = queue.Queue()
         self.versions: dict[str, int] = {}
         self.clients = find_clients()
-        self.keyring_problem = credentials.problem()  # "" when passwords can be saved
+        self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
+        self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
+        self.reading: set[str] = set()  # connections waiting for their saved password
 
         self._build()
         self.pack(fill="both", expand=True)
@@ -549,8 +552,7 @@ class App(ttk.Frame):
         self._refresh_saved()
         self._refresh_preview()
         self._log(f"clients found: {', '.join(self.clients) or 'none'}")
-        if self.keyring_problem:
-            self._log(f"passwords are not saved: {self.keyring_problem}")
+        self.keyring.run(credentials.problem, lambda problem, _: self._keyring_checked(problem))
         self.after(100, self._drain_output)
         root.protocol("WM_DELETE_WINDOW", self._quit)
 
@@ -646,17 +648,15 @@ class App(ttk.Frame):
         password = ttk.Frame(f)
         ttk.Entry(password, textvariable=self.password, show="•").pack(
             side="left", fill="x", expand=True)
-        forget = ttk.Button(password, text="Forget", width=7, command=self._forget_password)
-        forget.pack(side="left")
+        self.forget = ttk.Button(password, text="Forget", width=7, command=self._forget_password)
+        self.forget.pack(side="left")
         self._row(f, 6, "Password", password)
-        remember = ttk.Checkbutton(f, text="Remember it in the system keyring",
-                                   variable=self.vars["remember_password"])
-        remember.grid(row=7, column=1, sticky="w")
-        if self.keyring_problem:
-            for widget in (forget, remember):
-                widget.state(["disabled"])
-            ttk.Label(f, text="No system keyring: passwords stay in memory (the log says why)",
-                      foreground="gray").grid(row=8, column=1, sticky="w")
+        self.remember = ttk.Checkbutton(f, text="Remember it in the system keyring",
+                                        variable=self.vars["remember_password"])
+        self.remember.grid(row=7, column=1, sticky="w")
+        self.no_keyring = ttk.Label(  # shown once the keyring turns out to be unusable
+            f, text="No system keyring: passwords stay in memory (the log says why)",
+            foreground="gray")
         self._row(f, 9, "Gateway", ttk.Entry(f, textvariable=self.vars["gateway"]))
         self._row(f, 10, "Certificate", ttk.Combobox(f, textvariable=self.vars["cert"],
                                                      values=CERT_CHOICES, state="readonly"))
@@ -773,7 +773,9 @@ class App(ttk.Frame):
     def _launch(self, name: str, v: dict, password: str | None) -> bool:
         """Start one client; False when it did not start and the user was told why.
 
-        Without a password: the one saved in the system keyring, else ask.
+        Without a password: the one saved in the system keyring, else ask. The
+        keyring is read in the background, so then True means the client is on
+        its way, not that it started.
         """
         v = {**FIELDS, **v}
         client = self._resolve_client(v["client"])
@@ -792,12 +794,32 @@ class App(ttk.Frame):
         if not v["host"].strip():
             messagebox.showerror(APP, "Enter a host to connect to.")
             return False
-        if password is None and v["user"].strip():
-            password = self._load_password(name, v)
-        if password is None and v["user"].strip():
-            password = self._ask_password(name, v, f"Password for {v['user']} on {name}")
-            if password is None:
-                return False
+        if password is not None or not v["user"].strip():
+            return self._start(name, v, client, password)
+        if not v["remember_password"] or self.keyring_problem:
+            return self._ask_and_start(name, v, client)
+        if name not in self.reading:  # not twice when Connect is clicked again meanwhile
+            self.reading.add(name)
+            self.keyring.run(functools.partial(credentials.load, v),
+                             lambda found, error: self._loaded(name, v, client, found, error))
+        return True
+
+    def _loaded(self, name: str, v: dict, client: str, password: str | None, error):
+        """The keyring answered: connect with the saved password, or ask for one."""
+        self.reading.discard(name)
+        if error:
+            self._log(f"{name}: cannot read the saved password: {error}")
+        if password is None:
+            self._ask_and_start(name, v, client)
+            return
+        self.passwords[name] = password  # read the keyring once per window
+        self._start(name, v, client, password)
+
+    def _ask_and_start(self, name: str, v: dict, client: str) -> bool:
+        password = self._ask_password(name, v, f"Password for {v['user']} on {name}")
+        return password is not None and self._start(name, v, client, password)
+
+    def _start(self, name: str, v: dict, client: str, password: str | None) -> bool:
         values = {"h": v["host"].strip(), "p": v["port"].strip() or "3389",
                   "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
@@ -820,7 +842,8 @@ class App(ttk.Frame):
 
     def _ask_password(self, name: str, v: dict, prompt: str) -> str | None:
         """Ask for the password of v, and save it if the box is left ticked."""
-        answer = ask_password(self.root, prompt, v["remember_password"], self.keyring_problem)
+        answer = ask_password(self.root, prompt, v["remember_password"],
+                              self.keyring_problem or "")
         if answer is None:
             return None
         password, remember = answer
@@ -866,6 +889,8 @@ class App(ttk.Frame):
                         self.after_idle(self._rejected, session)
         except queue.Empty:
             pass
+        for done in self.keyring.finished():
+            self.after_idle(done)  # not here: a password dialog would hold up the output
         self.after(100, self._drain_output)
 
     def _log(self, text: str, session: Session | None = None):
@@ -883,6 +908,7 @@ class App(ttk.Frame):
         for s in running:  # their after commands do not run: the window is going away
             s.stop()
             s.stop_helper()
+        self.keyring.close(timeout=3)  # let a password being saved get there
         self.root.destroy()
 
     # ---- saved connections ------------------------------------------------
@@ -956,9 +982,9 @@ class App(ttk.Frame):
         if old and (credentials.key(old) != credentials.key(v) or not v["remember_password"]):
             self._release_password(old)  # it logs in elsewhere now, or is not to be kept
         password = self.passwords.get(name)
-        kept = v["remember_password"] and password and self._store_password(v, password)
-        self._log(f"saved '{name}' to {self.store} (password "
-                  f"{'in the system keyring' if kept else 'not saved'})")
+        if v["remember_password"] and password:
+            self._store_password(v, password)
+        self._log(f"saved '{name}' to {self.store}")
 
     def _delete(self):
         names = self._selected_names()
@@ -972,34 +998,38 @@ class App(ttk.Frame):
 
     # ---- the system keyring -----------------------------------------------
 
-    def _load_password(self, name: str, v: dict) -> str | None:
-        """The password saved for v, None when there is none or it cannot be read."""
-        if not v["remember_password"] or self.keyring_problem:
-            return None
-        try:
-            password = credentials.load(v)
-        except credentials.CredentialError as e:
-            self._log(f"{name}: cannot read the saved password: {e}")
-            return None
-        if password is not None:
-            self.passwords[name] = password  # read the keyring once per window
-        return password
+    def _keyring_checked(self, problem: str):
+        self.keyring_problem = problem
+        if problem:
+            self._log(f"passwords are not saved: {problem}")
+            for widget in (self.forget, self.remember):
+                widget.state(["disabled"])
+            self.no_keyring.grid(row=8, column=1, sticky="w")
 
-    def _store_password(self, v: dict, password: str) -> bool:
-        if self.keyring_problem or not credentials.key(v):
-            return False
-        try:
-            credentials.save(v, password)
-        except credentials.CredentialError as e:
-            messagebox.showwarning(APP, f"The password was not saved.\n\n{e}")
-            return False
-        return True
+    def _store_password(self, v: dict, password: str):
+        """Save the password of v in the background; a warning says when that fails."""
+        k = credentials.key(v)
+        if self.keyring_problem or not k:
+            return
 
-    def _forget(self, v: dict):
-        try:
-            credentials.forget(v)
-        except credentials.CredentialError as e:
-            self._log(f"cannot remove the saved password: {e}")
+        def done(_, error):
+            if error:
+                messagebox.showwarning(APP, f"The password was not saved.\n\n{error}")
+            else:
+                self._log(f"saved the password of {k[1]} on {v['host'].strip()} "
+                          "in the system keyring")
+
+        self.keyring.run(functools.partial(credentials.save, dict(v), password), done)
+
+    def _forget(self, v: dict, done=None):
+        """Remove the saved password of v in the background; then done(), if it worked."""
+        def finished(_, error):
+            if error:
+                self._log(f"cannot remove the saved password: {error}")
+            elif done:
+                done()
+
+        self.keyring.run(functools.partial(credentials.forget, dict(v)), finished)
 
     def _release_password(self, v: dict):
         """Forget the saved password of a connection that is gone or changed, unless
@@ -1018,10 +1048,10 @@ class App(ttk.Frame):
         if not credentials.key(v):
             messagebox.showerror(APP, "Enter the host and the user whose password to forget.")
             return
-        self._forget(v)
         self.password.set("")
         self.passwords.pop(self.name.get().strip() or v["host"].strip(), None)
-        self._log(f"forgot the saved password of {credentials.key(v)[1]} on {v['host'].strip()}")
+        self._forget(v, lambda: self._log(f"forgot the saved password of {credentials.key(v)[1]} "
+                                          f"on {v['host'].strip()}"))
 
     def _set_remember(self, name: str, remember: bool):
         """Keep the remember box of a connection as the password dialog left it."""

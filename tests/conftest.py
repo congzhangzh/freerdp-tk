@@ -1,6 +1,7 @@
 import os
 import stat
 import sys
+import time
 import tkinter as tk
 
 import keyring
@@ -94,16 +95,22 @@ def fake_client(home, monkeypatch):
 @pytest.fixture
 def make_ui(home):
     """Open the real window; call it once the PATH a test wants is in place."""
-    roots = []
 
     def make():
         from freerdp_tk import app
         root = tk.Tk()
-        roots.append(root)
         window = app.App(root)
+        windows.append(window)
         root.update()  # map it, so it has a size and a place on screen
+        end = time.monotonic() + 15
+        while window.keyring.pending:  # the keyring check at startup
+            assert time.monotonic() < end, "the keyring check did not come back"
+            root.update()
+            time.sleep(0.01)
         return window
 
+    windows = []
     yield make
-    for root in roots:
-        root.destroy()
+    for window in windows:
+        window.keyring.close(timeout=5)
+        window.root.destroy()

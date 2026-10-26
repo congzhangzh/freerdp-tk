@@ -1,13 +1,15 @@
 """Saved passwords in the window, with the in-memory keyring from conftest.py."""
 
 import json
+import threading
+import time
 
 import keyring
 from keyring.backends import null
 from keyring.errors import KeyringLocked
 
 from freerdp_tk import app, credentials
-from helpers import button, click, entry_for, log_text, pump, type_into, widgets
+from helpers import button, click, entry_for, log_text, pump, settle, type_into, widgets
 
 LAB = {"host": "rdp.example.com", "user": "alice"}
 
@@ -30,7 +32,13 @@ def connect(ui, record) -> list[str]:
     """Connect what is selected; the arguments the fake client got."""
     record.unlink(missing_ok=True)
     click(ui, button(ui, "Connect"))
-    pump(ui, lambda: ui.running_list.size() == 0 and record.exists())
+    return connect_done(ui, record)
+
+
+def connect_done(ui, record) -> list[str]:
+    """Wait for the client to have run; the arguments it got."""
+    pump(ui, lambda: record.exists() and ui.running_list.size() == 0)
+    settle(ui)
     return json.loads(record.read_text())["stdin"].splitlines()
 
 
@@ -51,6 +59,7 @@ def test_saved_once_then_used_by_the_next_window(make_ui, fake_client, memory_ke
     ui = make_ui()
     fill(ui, "lab", "s3cret!")
     click(ui, button(ui, "Save"))
+    settle(ui)
     assert memory_keyring.items == {credentials.key(LAB): "s3cret!"}
     assert "s3cret" not in ui.store.read_text()  # the file has the flag, not the password
     assert json.loads(ui.store.read_text())["lab"]["remember_password"] is True
@@ -67,6 +76,7 @@ def test_the_prompt_saves_when_ticked(make_ui, fake_client, memory_keyring, monk
     ui = make_ui()
     fill(ui, "lab")
     click(ui, button(ui, "Save"))
+    settle(ui)
     assert memory_keyring.items == {}  # no password known yet
     asked = []
     monkeypatch.setattr(app, "ask_password", prompt(("pw1", True), asked))
@@ -80,6 +90,7 @@ def test_the_prompt_unticked_saves_nothing_and_is_remembered(make_ui, fake_clien
     ui = make_ui()
     fill(ui, "lab")
     click(ui, button(ui, "Save"))
+    settle(ui)
     monkeypatch.setattr(app, "ask_password", prompt(("pw1", False)))
     assert "/p:pw1" in connect(ui, fake_client)
     assert memory_keyring.items == {}
@@ -100,8 +111,10 @@ def test_unticking_and_saving_forgets(make_ui, fake_client, memory_keyring):
     ui = make_ui()
     fill(ui, "lab", "pw")
     click(ui, button(ui, "Save"))
+    settle(ui)
     ui.vars["remember_password"].set(False)
     click(ui, button(ui, "Save"))
+    settle(ui)
     assert memory_keyring.items == {}
 
 
@@ -111,13 +124,17 @@ def test_delete_keeps_a_password_another_connection_uses(make_ui, fake_client, m
     ui = make_ui()
     fill(ui, "lab", "pw")
     click(ui, button(ui, "Save"))
+    settle(ui)
     ui.name.set("lab copy")
     click(ui, button(ui, "Save"))
+    settle(ui)
     select(ui, "lab")
     click(ui, button(ui, "Delete"))
+    settle(ui)
     assert memory_keyring.items == {credentials.key(LAB): "pw"}  # "lab copy" uses it
     select(ui, "lab copy")
     click(ui, button(ui, "Delete"))
+    settle(ui)
     assert memory_keyring.items == {}
 
 
@@ -126,6 +143,7 @@ def test_the_forget_button(make_ui, fake_client, memory_keyring):
     ui = make_ui()
     fill(ui, "lab", "pw")
     click(ui, button(ui, "Forget"))
+    settle(ui)
     assert memory_keyring.items == {}
     assert ui.password.get() == ""
     assert "forgot the saved password of alice on rdp.example.com" in log_text(ui)
@@ -216,3 +234,30 @@ def test_a_locked_account_is_not_asked_again(make_ui, fake_client, memory_keyrin
     for _ in range(10):
         ui.root.update()  # give an after_idle prompt its chance
     assert "exited with code 135" in log_text(ui) and asked == []
+
+
+def test_a_hung_keyring_does_not_freeze_the_window(make_ui, fake_client, memory_keyring,
+                                                   monkeypatch):
+    memory_keyring.set_password(*credentials.key(LAB), "pw")
+    answer, reads = threading.Event(), []
+    real_get = memory_keyring.get_password
+
+    def slow_get(*k):  # like a Secret Service that D-Bus is still trying to start
+        reads.append(k)
+        answer.wait(10)
+        return real_get(*k)
+
+    monkeypatch.setattr(memory_keyring, "get_password", slow_get)
+    monkeypatch.setattr(app, "ask_password", no_prompt)
+    ui = make_ui()
+    fill(ui, "lab")
+    started = time.monotonic()
+    click(ui, button(ui, "Connect"))
+    click(ui, button(ui, "Connect"))  # again, while the keyring is still busy
+    assert time.monotonic() - started < 2  # the clicks came back, the keyring did not
+    type_into(ui, entry_for(ui, ui.vars["port"]), "3390")  # and the window still works
+    assert ui.reading == {"lab"} and not fake_client.exists()
+    answer.set()
+    assert "/p:pw" in connect_done(ui, fake_client)
+    assert len(reads) == 1  # one read for the two clicks
+    assert ui.running_list.size() == 0 and "started" in log_text(ui)

@@ -31,6 +31,11 @@ def pump(ui, until, timeout=15.0):
     raise AssertionError(f"timed out; log so far:\n{log_text(ui)}")
 
 
+def settle(ui):
+    """Wait until the keyring calls queued so far are done and handed back."""
+    pump(ui, lambda: ui.keyring.pending == 0)
+
+
 def widgets(ui):
     todo = [ui.root]
     while todo:

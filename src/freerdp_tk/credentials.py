@@ -13,9 +13,17 @@ the entries the native way (CredRead, libsecret, SecItemCopyMatching).
 
 Only the backends in SAFE are used, so a password never ends up in a plain
 file, whatever keyring is configured to prefer.
+
+A keyring call can block for long: an unlock prompt waits for the user, and a
+Secret Service that D-Bus cannot start takes its activation timeout (two
+minutes) to fail. Worker runs the calls on a thread of its own, so the window
+stays responsive meanwhile.
 """
 
+import functools
+import queue
 import sys
+import threading
 
 APP = "freerdp-tk"
 DEFAULT_PORT = "3389"
@@ -118,3 +126,60 @@ def _call(action):
 
 def _reason(e: Exception) -> str:
     return str(e) or type(e).__name__
+
+
+class Worker:
+    """Runs keyring calls one at a time, in order, on a thread of its own.
+
+    run() queues a call; the caller's thread collects what is done with
+    finished(), so callbacks never run on the worker thread (Tk must only be
+    used from its own thread). One thread keeps the calls in order: a save
+    queued before a load is done before it.
+    """
+
+    def __init__(self):
+        self.jobs: queue.Queue = queue.Queue()
+        self.results: queue.Queue = queue.Queue()
+        self.pending = 0  # queued, running or not yet handed back; changed by the caller only
+        self.thread = threading.Thread(target=self._work, name="keyring", daemon=True)
+        self.thread.start()
+
+    def run(self, action, done=None):
+        """Call action() on the worker thread, then done(result, error) through finished().
+
+        error is the CredentialError the call raised, or None.
+        """
+        self.pending += 1
+        self.jobs.put((action, done))
+
+    def finished(self):
+        """The callbacks of the calls done since last time, to run on the caller's thread."""
+        while True:
+            try:
+                done, result, error = self.results.get_nowait()
+            except queue.Empty:
+                return
+            yield functools.partial(self._finish, done, result, error)
+
+    def close(self, timeout: float):
+        """Stop the thread once the queued calls are done, waiting up to timeout seconds."""
+        self.jobs.put(None)
+        self.thread.join(timeout)
+
+    def _finish(self, done, result, error):
+        try:
+            if done:
+                done(result, error)
+        finally:
+            self.pending -= 1
+
+    def _work(self):
+        while (job := self.jobs.get()) is not None:
+            action, done = job
+            try:
+                result, error = action(), None
+            except CredentialError as e:
+                result, error = None, e
+            except Exception as e:  # a bug, not the keyring: still hand it back
+                result, error = None, CredentialError(_reason(e))
+            self.results.put((done, result, error))

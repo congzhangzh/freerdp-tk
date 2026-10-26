@@ -1,6 +1,9 @@
 """Passwords in the system keyring, here an in-memory one (see conftest.py)."""
 
+import functools
 import sys
+import threading
+import time
 
 import keyring
 import pytest
@@ -72,3 +75,23 @@ def test_backend_errors_become_credential_errors(memory_keyring, monkeypatch):
 def test_without_the_keyring_package(monkeypatch):
     monkeypatch.setitem(sys.modules, "keyring", None)  # import keyring now fails
     assert "not installed" in credentials.problem()
+
+
+def test_the_worker_keeps_order_and_hands_back_results_and_errors():
+    worker, got = credentials.Worker(), []
+    caller = threading.get_ident()
+
+    def done(result, error):
+        got.append((result, str(error) if error else None, threading.get_ident() == caller))
+
+    worker.run(functools.partial(credentials.save, LAB, "pw"), done)
+    worker.run(functools.partial(credentials.load, LAB), done)
+    worker.run(lambda: 1 / 0, done)
+    end = time.monotonic() + 5
+    while worker.pending and time.monotonic() < end:
+        for callback in worker.finished():
+            callback()
+        time.sleep(0.01)
+    worker.close(timeout=5)
+    assert got == [(None, None, True), ("pw", None, True), (None, "division by zero", True)]
+    assert not worker.thread.is_alive()
