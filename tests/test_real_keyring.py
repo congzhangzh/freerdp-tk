@@ -15,8 +15,9 @@ import pytest
 
 from freerdp_tk import credentials
 
-pytestmark = pytest.mark.skipif(not os.environ.get("FREERDP_TK_REAL_KEYRING"),
-                                reason="writes to the system keyring; set FREERDP_TK_REAL_KEYRING=1")
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("FREERDP_TK_REAL_KEYRING"),
+    reason="writes to the system keyring; set FREERDP_TK_REAL_KEYRING=1")
 
 EXPECTED = {"linux": "keyring.backends.SecretService.Keyring",
             "win32": "keyring.backends.Windows.WinVaultKeyring",
