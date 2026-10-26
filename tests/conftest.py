@@ -11,11 +11,16 @@ from keyring.errors import PasswordDeleteError
 
 # Stands in for a FreeRDP 3 client: answers /version (with $FAKE_VERSION when
 # set), then records what it was given (argv and stdin) and exits with code 7,
-# so a test can check both ends.
+# so a test can check both ends. /list:monitor prints $FAKE_MONITORS.
 # Given the password in $FAKE_REJECT it exits with $FAKE_REJECT_CODE (default
 # 132, authentication failed) instead, like a server that turns it down.
 FAKE_CLIENT = """
 import json, os, sys
+if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS says otherwise
+    print(os.environ.get("FAKE_MONITORS", "listing 2 monitors:\\n"
+          "     * [1] [Built-in Retina Display] 1512x982\\t+0+0\\n"
+          "       [2] [DELL U2720Q] 2560x1440\\t+-2560+0"))
+    sys.exit(0)
 if sys.argv[1:] == ["/version"]:
     print(f"This is FreeRDP version {os.environ.get('FAKE_VERSION', '3.99.0')} (fake)")
     sys.exit(0)

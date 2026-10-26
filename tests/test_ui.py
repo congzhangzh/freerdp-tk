@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from helpers import (button, click, entry_for, has_xdotool, log_text, pump, type_into,
+from helpers import (button, click, entry_for, has_xdotool, log_text, pump, type_into, widgets,
                      xdo_click, xdo_type)
 
 
@@ -96,3 +96,51 @@ def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     ui.store.parent.mkdir(parents=True, exist_ok=True)
     ui.store.write_text(json.dumps({"lab": {"host": "h", "client": app.OLD_AUTO}}))
     assert make_ui().saved["lab"]["client"] == app.AUTO
+
+
+def test_list_and_pick_monitors(make_ui, fake_client, monkeypatch):
+    from freerdp_tk import app
+    shown = []
+
+    def pick(root, monitors, chosen):
+        shown.append(([(m["id"], m["name"], m["primary"]) for m in monitors], chosen))
+        return ["2"]
+
+    monkeypatch.setattr(app, "pick_monitors", pick)
+    ui = make_ui()
+    ui.vars["monitors"].set("1")
+    click(ui, button(ui, "List…"))
+    pump(ui, lambda: ui.vars["monitors"].get() == "2")
+    assert shown == [([("1", "Built-in Retina Display", True), ("2", "DELL U2720Q", False)],
+                      ["1"])]
+    assert "/monitors:2" in ui.preview.get("1.0", "end")
+    assert button(ui, "List…").instate(["!disabled"])
+
+
+def test_no_monitors_listed(make_ui, fake_client, monkeypatch):
+    from freerdp_tk import app
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    monkeypatch.setenv("FAKE_MONITORS", "listing 0 monitors:")
+    ui = make_ui()
+    click(ui, button(ui, "List…"))
+    pump(ui, lambda: errors)
+    assert "found no monitors" in errors[0] and "listing 0 monitors:" in log_text(ui)
+
+
+def test_the_monitor_dialog(make_ui):
+    from freerdp_tk import app
+    ui = make_ui()
+    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0\n    [3] [B] 1920x1080\t+1920+0")
+
+    def answer():
+        dialog = next(w for w in widgets(ui) if w.winfo_class() == "Toplevel")
+        boxes = [w for w in widgets(ui) if w.winfo_class() == "TCheckbutton"
+                 and w.winfo_toplevel() is dialog]
+        click(ui, next(b for b in boxes if b.cget("text").startswith("3:")))  # tick 3
+        click(ui, next(b for b in boxes if b.cget("text").startswith("1:")))  # untick 1
+        click(ui, next(w for w in widgets(ui) if w.winfo_class() == "TButton"
+                       and w.winfo_toplevel() is dialog and w.cget("text") == "OK"))
+
+    ui.root.after(200, answer)
+    assert app.pick_monitors(ui.root, monitors, ["1"]) == ["3"]

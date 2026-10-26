@@ -3,6 +3,7 @@
 Skipped when no FreeRDP 3 SDL client is installed. It connects to a closed local
 port, so no server is needed: the client must read its arguments from stdin,
 try that address and fail, and the window must show its output and exit code.
+It also lists the monitors, in the format parse_monitors() reads.
 """
 
 import re
@@ -46,3 +47,10 @@ def test_real_client_reads_args_from_stdin(make_ui, real_client):
     assert "s3cret" not in log
     # the client got /v and /port through stdin: its own messages name the target
     assert str(port) in log.split("started:", 1)[1].split("\n", 1)[1]
+
+
+def test_real_client_lists_monitors(real_client):
+    monitors, output = app.list_monitors(real_client)
+    print(output)
+    assert monitors, output  # the virtual X server's screen, in the format parse_monitors reads
+    assert all(m["id"].isdigit() for m in monitors)

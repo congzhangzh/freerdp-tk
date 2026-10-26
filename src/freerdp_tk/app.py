@@ -59,7 +59,7 @@ HIDDEN = "********"
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
-    "multimon": False, "gfx": "(default)", "clipboard": True, "sound": True,
+    "multimon": False, "monitors": "", "gfx": "(default)", "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait": "", "post": "", "remember_password": True,
@@ -111,6 +111,30 @@ def client_major_version(client: str) -> int:
         return 0
     match = re.search(r"version (\d+)\.", out)
     return int(match.group(1)) if match else 0
+
+
+MONITOR_LINE = re.compile(  # "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors()
+    r"^\s*(\*?)\s*\[(\d+)\]\s*\[(.*)\]\s+(\d+x\d+)\s+(\+-?\d+\+-?\d+)\s*$")
+
+
+def parse_monitors(output: str) -> list[dict]:
+    """The monitors in the output of the SDL client's /list:monitor."""
+    return [{"id": m[2], "name": m[3], "size": m[4], "at": m[5], "primary": m[1] == "*"}
+            for m in map(MONITOR_LINE.match, output.splitlines()) if m]
+
+
+def list_monitors(client: str) -> tuple[list[dict], str]:
+    """The monitors the client sees, and its whole output for when there are none.
+
+    /list:monitor must be on the command line: read from stdin, the client
+    prints its usage instead. There is nothing secret in it.
+    """
+    try:
+        done = subprocess.run([client, "/list:monitor"], capture_output=True, text=True,
+                              errors="replace", timeout=15, **no_console())
+    except (OSError, subprocess.SubprocessError) as e:
+        return [], str(e)
+    return parse_monitors(done.stdout), (done.stdout + done.stderr).strip()
 
 
 def no_console() -> dict:
@@ -327,8 +351,11 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
         args.append(f"/size:{v['size'].strip()}")
     if v["dynamic"]:
         args.append("/dynamic-resolution")
-    if v["multimon"]:
+    monitors = re.findall(r"\d+", v["monitors"])
+    if v["multimon"] or (monitors and not v["fullscreen"]):  # /monitors needs one of the two
         args.append("/multimon")
+    if monitors:
+        args.append(f"/monitors:{','.join(monitors)}")
     if v["gfx"] == "off":
         args.append("-gfx")
     elif v["gfx"] != "(default)":
@@ -350,6 +377,40 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
 
 def join_command(argv: list[str]) -> str:
     return subprocess.list2cmdline(argv) if IS_WIN else shlex.join(argv)
+
+
+def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str]) -> list[str] | None:
+    """Tick the monitors to use; their IDs, None when cancelled."""
+    top = tk.Toplevel(root)
+    top.title(APP)
+    top.transient(root)
+    top.resizable(False, False)
+    frame = ttk.Frame(top, padding=12)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text="Full screen on these monitors:").pack(anchor="w", pady=(0, 4))
+    ticks = []
+    for m in monitors:
+        var = tk.BooleanVar(value=m["id"] in chosen)
+        ticks.append((m["id"], var))
+        text = f"{m['id']}: {m['name'] or 'monitor'}, {m['size']} at {m['at']}"
+        ttk.Checkbutton(frame, text=text + (" (primary)" if m["primary"] else ""),
+                        variable=var).pack(anchor="w")
+    answer = []
+
+    def ok(_=None):
+        answer.append([i for i, var in ticks if var.get()])
+        top.destroy()
+
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(10, 0))
+    ttk.Button(buttons, text="Cancel", command=top.destroy).pack(side="right")
+    ttk.Button(buttons, text="OK", command=ok).pack(side="right", padx=4)
+    top.bind("<Return>", ok)
+    top.bind("<Escape>", lambda _: top.destroy())
+    top.wait_visibility()
+    top.grab_set()
+    top.wait_window()
+    return answer[0] if answer else None
 
 
 def ask_password(root: tk.Tk, prompt: str, remember: bool,
@@ -670,7 +731,15 @@ class App(ttk.Frame):
             values=["1280x720", "1600x900", "1920x1080", "2560x1440", "80%", "100%"]))
         self._check(f, 2, "Resize the remote desktop with the window", "dynamic")
         self._check(f, 3, "Use all monitors", "multimon")
-        self._row(f, 4, "Graphics codec", ttk.Combobox(f, textvariable=self.vars["gfx"],
+        monitors = ttk.Frame(f)
+        ttk.Entry(monitors, textvariable=self.vars["monitors"]).pack(
+            side="left", fill="x", expand=True)
+        self.list_monitors = ttk.Button(monitors, text="List…", command=self._pick_monitors)
+        self.list_monitors.pack(side="left")
+        self._row(f, 4, "Monitors", monitors)
+        ttk.Label(f, text="Full screen on just these (IDs from List…); empty: as above",
+                  foreground="gray").grid(row=5, column=1, sticky="w")
+        self._row(f, 6, "Graphics codec", ttk.Combobox(f, textvariable=self.vars["gfx"],
                                                        values=GFX_CHOICES, state="readonly"))
         return f
 
@@ -1068,6 +1137,36 @@ class App(ttk.Frame):
         path = filedialog.askopenfilename(title="FreeRDP client")
         if path:
             self.vars["client"].set(path)
+
+    def _pick_monitors(self):
+        """List…: ask the client which monitors it sees, then tick the ones to use."""
+        client = self._resolve_client(self.vars["client"].get())
+        if not client:
+            messagebox.showerror(APP, "No FreeRDP SDL client found to list the monitors.")
+            return
+        result = []
+        thread = threading.Thread(target=lambda: result.append(list_monitors(client)),
+                                  daemon=True)  # SDL can take a while to start
+        thread.start()
+        self.list_monitors.state(["disabled"])
+
+        def wait():
+            if thread.is_alive():
+                self.after(50, wait)
+                return
+            self.list_monitors.state(["!disabled"])
+            monitors, output = result[0]
+            if not monitors:
+                self._log(f"{client} /list:monitor: {output or 'no output'}")
+                messagebox.showerror(APP, "The client found no monitors (the log has its "
+                                          "output).")
+                return
+            chosen = re.findall(r"\d+", self.vars["monitors"].get())
+            picked = pick_monitors(self.root, monitors, chosen)
+            if picked is not None:
+                self.vars["monitors"].set(",".join(picked))
+
+        wait()
 
     def _browse_drive(self):
         path = filedialog.askdirectory(title="Folder to share")
