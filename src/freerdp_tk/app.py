@@ -1,4 +1,4 @@
-"""The freerdp-tk window: a small Tkinter launcher for the FreeRDP command-line clients.
+"""The freerdp-tk window: a small Tkinter launcher for the FreeRDP 3 SDL client.
 
 Runs on Linux, Windows and macOS with the Python standard library and keyring.
 It keeps a list of saved connections, builds a FreeRDP command line from a
@@ -6,10 +6,10 @@ form and shows each client's output in a log pane. Passwords never go to a
 file: they stay in memory, and in the system keyring when a connection is set
 to remember its password (see credentials.py).
 
-The "(auto)" client picks the best client found, preferring the SDL client.
-On FreeRDP 3 the arguments are piped in with /args-from:stdin, so the
-password never shows up in the process list. FreeRDP 2 has no such option
-and gets /p:<password> on the command line instead.
+The "(auto)" client is the first SDL client found on PATH or in a local
+FreeRDP build tree. The arguments are piped in with /args-from:stdin, so the
+password never shows up in the process list; that needs FreeRDP 3, so older
+clients are refused rather than given /p:<password> on the command line.
 
 Each connection can run a command before the client starts (to open an SSH
 tunnel, say) and one after it ends. The before command either runs to the end
@@ -41,15 +41,14 @@ APP = "freerdp-tk"
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 EXE = ".exe" if IS_WIN else ""
-AUTO = "(auto: prefer SDL)"
+AUTO = "(auto: SDL client)"
+OLD_AUTO = "(auto: prefer SDL)"  # what older versions saved for auto
 
-# Client flavours, best first. The SDL client is the actively developed,
-# cross-platform one, so it wins whenever it is available.
-KINDS = ["sdl3", "sdl", "sdl2", "x11", "wayland", "windows", "other"]
-CLIENT_NAMES = ["sdl-freerdp3", "sdl3-freerdp3", "sdl3-freerdp", "sdl-freerdp", "sdl2-freerdp3",
-                "sdl2-freerdp", "xfreerdp3", "xfreerdp", "wlfreerdp3", "wlfreerdp", "wfreerdp"]
-BUILD_GLOBS = ["client/SDL/SDL3/*freerdp*", "client/SDL/SDL2/*freerdp*", "client/X11/xfreerdp*",
-               "client/Wayland/wlfreerdp*", "client/Windows/wfreerdp*"]
+# The SDL client: the actively developed one, the same on Linux, Windows and
+# macOS. A FreeRDP build names it sdl-freerdp, with "3" appended when binaries
+# are versioned, or sdl3-freerdp when it builds the SDL2 client beside it.
+CLIENT_NAMES = ["sdl3-freerdp3", "sdl3-freerdp", "sdl-freerdp3", "sdl-freerdp"]
+BUILD_GLOB = "client/SDL/SDL3/*freerdp*"
 GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV1:i444",
                "AV1:i420"]
 CERT_CHOICES = ["tofu", "ignore", "deny"]
@@ -66,8 +65,8 @@ FIELDS = {  # name -> default; everything a saved connection stores
 }
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_TIMEOUT = 30  # seconds to wait for the before command's port
-# Client exit codes that mean "try another password", the same in the X11, SDL2
-# and SDL3 clients: authentication failed, logon failure, wrong password, no
+# Client exit codes that mean "try another password" (SDL3 client,
+# sdl_utils.hpp): authentication failed, logon failure, wrong password, no
 # or missing credentials. Not a locked, expired or disabled account: another
 # password would not help there.
 BAD_PASSWORD = {132, 134, 154, 159}
@@ -84,17 +83,8 @@ def config_dir() -> Path:
     return base / APP
 
 
-def client_kind(path: str) -> str:
-    name = Path(path).name.lower()
-    for kind, marker in (("sdl3", "sdl3"), ("sdl2", "sdl2"), ("sdl", "sdl"), ("x11", "xfreerdp"),
-                         ("wayland", "wlfreerdp"), ("windows", "wfreerdp")):
-        if marker in name:
-            return kind
-    return "other"
-
-
 def find_clients() -> list[str]:
-    """Clients on PATH and in local FreeRDP build trees, best first.
+    """SDL clients on PATH, then in local FreeRDP build trees.
 
     Build trees are searched in ~/projects/FreeRDP and in every source tree
     listed in $FREERDP_TK_TREES (separated like PATH).
@@ -105,12 +95,10 @@ def find_clients() -> list[str]:
     trees += [Path(t).expanduser() for t in extra if t]
     for tree in dict.fromkeys(trees):
         for build in sorted(tree.glob("build*")):
-            for pattern in BUILD_GLOBS:
-                for path in sorted(build.glob(pattern)):
-                    if path.is_file() and os.access(path, os.X_OK) and path.suffix in ("", EXE):
-                        found.append(str(path))
-    unique = list(dict.fromkeys(found))
-    return sorted(unique, key=lambda p: KINDS.index(client_kind(p)))  # stable: PATH first
+            for path in sorted(build.glob(BUILD_GLOB)):
+                if path.is_file() and os.access(path, os.X_OK) and path.suffix in ("", EXE):
+                    found.append(str(path))
+    return list(dict.fromkeys(found))
 
 
 def client_major_version(client: str) -> int:
@@ -415,7 +403,7 @@ class Session:
 
     count = 0
 
-    def __init__(self, name: str, v: dict, values: dict, argv: list[str], stdin: str | None,
+    def __init__(self, name: str, v: dict, values: dict, argv: list[str], stdin: str,
                  notes: list[str], out: queue.Queue):
         Session.count += 1
         self.name = name
@@ -513,8 +501,7 @@ class Session:
         except OSError as e:
             self.say(f"cannot start {self.argv[0]}: {e}")
             return
-        if self.stdin is not None:
-            self.client.stdin.write(self.stdin)
+        self.client.stdin.write(self.stdin)
         self.client.stdin.close()  # nothing is left to answer prompts, so they fail fast
         for note in self.notes:
             self.say(note)
@@ -791,8 +778,16 @@ class App(ttk.Frame):
         v = {**FIELDS, **v}
         client = self._resolve_client(v["client"])
         if not client:
-            messagebox.showerror(APP, f"{name}: no FreeRDP client found. Choose one under "
-                                      "Connection → Client.")
+            messagebox.showerror(APP, f"{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
+                                      "with its SDL client, or choose one under Connection → "
+                                      "Client.")
+            return False
+        if client not in self.versions:
+            self.versions[client] = client_major_version(client)
+        if self.versions[client] < 3:
+            messagebox.showerror(APP, f"{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
+                                      "passes the password on standard input "
+                                      "(/args-from:stdin), which needs FreeRDP 3.")
             return False
         if not v["host"].strip():
             messagebox.showerror(APP, "Enter a host to connect to.")
@@ -814,16 +809,11 @@ class App(ttk.Frame):
             messagebox.showerror(APP, f"{name}: values must not contain line breaks.")
             return False
 
-        if client not in self.versions:
-            self.versions[client] = client_major_version(client)
-        via_stdin = self.versions[client] >= 3
-        argv = [client, "/args-from:stdin"] if via_stdin else [client, *args]
-        notes = [] if via_stdin else [
-            "note: not a FreeRDP 3 client, the password is on the command line"]
         shown = build_args(v, HIDDEN if password else "", values)
-        notes.append(f"started: {join_command([client, *shown])}")
-        stdin = "".join(a + "\n" for a in args) if via_stdin else None
-        session = Session(name, v, values, argv, stdin, notes, self.output)
+        notes = [f"started: {join_command([client, *shown])}"]
+        stdin = "".join(a + "\n" for a in args)
+        session = Session(name, v, values, [client, "/args-from:stdin"], stdin, notes,
+                          self.output)
         self.sessions.append(session)
         self.running_list.insert("end", session.label)
         return True
@@ -902,8 +892,8 @@ class App(ttk.Frame):
             data = json.loads(self.store.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        for v in data.values():  # files from older versions stored "" for auto
-            if not v.get("client"):
+        for v in data.values():  # older versions stored "" or OLD_AUTO for auto
+            if v.get("client", "") in ("", OLD_AUTO):
                 v["client"] = AUTO
         return data
 

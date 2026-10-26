@@ -1,6 +1,6 @@
 """The distribution's own FreeRDP client, started from the window.
 
-Skipped when no FreeRDP 3 client is installed. It connects to a closed local
+Skipped when no FreeRDP 3 SDL client is installed. It connects to a closed local
 port, so no server is needed: the client must read its arguments from stdin,
 try that address and fail, and the window must show its output and exit code.
 """
@@ -18,7 +18,7 @@ from helpers import button, click, entry_for, log_text, pump, type_into
 def real_client(home):
     clients = app.find_clients()
     if not clients or app.client_major_version(clients[0]) < 3:
-        pytest.skip("no FreeRDP 3 client installed")
+        pytest.skip("no FreeRDP 3 SDL client installed")
     return clients[0]
 
 

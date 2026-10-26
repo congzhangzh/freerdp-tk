@@ -8,14 +8,15 @@ import pytest
 from keyring.backend import KeyringBackend
 from keyring.errors import PasswordDeleteError
 
-# Stands in for a FreeRDP 3 client: answers /version, then records what it was
-# given (argv and stdin) and exits with code 7, so a test can check both ends.
+# Stands in for a FreeRDP 3 client: answers /version (with $FAKE_VERSION when
+# set), then records what it was given (argv and stdin) and exits with code 7,
+# so a test can check both ends.
 # Given the password in $FAKE_REJECT it exits with $FAKE_REJECT_CODE (default
 # 132, authentication failed) instead, like a server that turns it down.
 FAKE_CLIENT = """
 import json, os, sys
 if sys.argv[1:] == ["/version"]:
-    print("This is FreeRDP version 3.99.0 (fake)")
+    print(f"This is FreeRDP version {os.environ.get('FAKE_VERSION', '3.99.0')} (fake)")
     sys.exit(0)
 stdin = sys.stdin.read()
 with open(os.environ["FAKE_RECORD"], "w") as f:

@@ -19,7 +19,7 @@ from PIL import ImageGrab  # noqa: E402
 
 from freerdp_tk import app  # noqa: E402
 
-DEMO_CLIENTS = ["/usr/bin/sdl-freerdp3", "/usr/bin/xfreerdp3", "/usr/bin/wlfreerdp3"]
+DEMO_CLIENTS = ["/usr/bin/sdl-freerdp3"]
 DEMO = {
     "build-server": {"host": "192.0.2.10", "user": "ci", "gfx": "AVC444"},
     "lab-windows-11": {"host": "192.0.2.21", "user": "alice", "domain": "LAB",

@@ -1,4 +1,4 @@
-from freerdp_tk.app import build_args, client_kind
+from freerdp_tk.app import build_args
 
 
 def test_minimal():
@@ -28,8 +28,3 @@ def test_backslashes_in_extra_arguments(monkeypatch):
 
 def test_drive_is_named_after_the_folder():
     assert "/drive:share,/srv/share" in build_args({"host": "h", "drive": "/srv/share"}, "")
-
-
-def test_client_kind():
-    assert [client_kind(p) for p in ("/usr/bin/sdl3-freerdp", "xfreerdp", "wfreerdp.exe")] == [
-        "sdl3", "x11", "windows"]

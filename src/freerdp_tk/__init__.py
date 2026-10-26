@@ -1,4 +1,4 @@
-"""freerdp-tk: a small cross-platform Tkinter launcher for the FreeRDP clients."""
+"""freerdp-tk: a small cross-platform Tkinter launcher for the FreeRDP 3 SDL client."""
 
 from importlib.metadata import PackageNotFoundError, version
 

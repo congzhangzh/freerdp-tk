@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "freerdp-tk"
 dynamic = ["version"]
-description = "A small cross-platform Tkinter launcher for the FreeRDP remote desktop clients"
+description = "A small cross-platform Tkinter launcher for the FreeRDP 3 SDL remote desktop client"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]

@@ -1,12 +1,12 @@
 # freerdp-tk
 
-A small launcher window for the [FreeRDP](https://www.freerdp.com/) remote desktop clients.
+A small launcher window for the [FreeRDP](https://www.freerdp.com/) 3 SDL client.
 It runs on Linux, Windows and macOS and needs Python with its built-in Tkinter, plus the [keyring](https://pypi.org/project/keyring/) package, which installs with it.
 
 ![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
 
 - **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
-- **Picks a client for you:** it finds the FreeRDP clients on your `PATH` and in local build trees. "(auto)" prefers the SDL client, then X11, Wayland and Windows.
+- **Finds the client for you:** "(auto)" takes the first FreeRDP SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`) or in a local build tree. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
 - **Form instead of flags:** display, graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
 - **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
 - **Session log:** runs several sessions at once and shows each client's output.
@@ -18,14 +18,14 @@ uv tool install freerdp-tk   # or: pipx install freerdp-tk
 freerdp-tk
 ```
 
-You also need a FreeRDP client, for example:
+You also need FreeRDP 3 with its SDL client:
 
 | Platform | Client |
 |----------|--------|
-| Debian / Ubuntu | `sudo apt install freerdp3-sdl` (or `freerdp3-x11`) |
+| Debian / Ubuntu | `sudo apt install freerdp3-sdl` |
 | Fedora | `sudo dnf install freerdp` |
 | macOS | `brew install freerdp` |
-| Windows | a FreeRDP build containing `sdl-freerdp.exe` or `wfreerdp.exe`, on your `PATH` |
+| Windows | a FreeRDP 3 build containing `sdl-freerdp.exe`, on your `PATH` |
 
 On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`). The Pythons that `uv` installs already include Tk.
 
@@ -33,12 +33,11 @@ On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`
 
 - **Saved in the system keyring, never in a file.** With *Remember it in the system keyring* ticked (the default), the password goes to the system's own store: Credential Manager on Windows, the Keychain on macOS, the Secret Service (GNOME Keyring, KeePassXC) or KWallet on Linux. From then on a double-click connects without asking. The connections file only keeps whether the box is ticked.
 - The password dialog has the same box: untick it, and the password stays in memory only, until the window closes. *Forget* removes a saved password. Deleting a connection removes its password too, unless another saved connection logs in to the same account.
-- **A rejected password is asked for again.** When the client exits because the server turned the password down (exit codes 132, 134, 154 and 159 of the X11 and SDL clients), freerdp-tk asks for another one and connects again; with the box ticked, the new password replaces the saved one. A locked, expired or disabled account is not asked again, since another password would not help.
+- **A rejected password is asked for again.** When the client exits because the server turned the password down (exit codes 132, 134, 154 and 159 of the SDL client), freerdp-tk asks for another one and connects again; with the box ticked, the new password replaces the saved one. A locked, expired or disabled account is not asked again, since another password would not help.
 - An entry is named after the account it logs in to, `freerdp-tk/<domain\user>@<host>:<port>`, not after the connection. Renaming a connection keeps its password, and two connections to one account share it.
 - **No usable keyring** (on Linux: no Secret Service or KWallet, or no D-Bus session, as over plain SSH): the box is greyed out with the reason, and passwords are asked for and kept in memory only. freerdp-tk never falls back to a file. A locked keyring is unlocked through the system's own prompt; if that fails or is cancelled, freerdp-tk asks for the password instead.
 - **What the keyring protects:** the password on disk, and from the other users of the computer. A program that runs as you can usually read it: Credential Manager and an unlocked Secret Service hand it to any process of your session, while the Keychain asks you first unless the program is on the entry's access list.
-- With FreeRDP 3, all arguments are passed to the client through standard input (`/args-from:stdin`). The password therefore never appears in the process list (`ps`, Task Manager).
-- FreeRDP 2 has no such option, so the password goes on the command line, and the log warns you about it.
+- All arguments are passed to the client through standard input (`/args-from:stdin`), so the password never appears in the process list (`ps`, Task Manager). FreeRDP 2 has no such option, so freerdp-tk refuses to start a FreeRDP 2 client rather than put the password on its command line.
 
 ## Before and after commands (SSH tunnels and more)
 
