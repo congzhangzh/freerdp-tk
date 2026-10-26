@@ -3,6 +3,8 @@
 #   itself) with its own Python, Tk and FreeRDP 3 client, in a virtual X server
 # - windows (x64) and macos (arm64): uv's Python, which includes Tk, on the
 #   runners' own desktop; no FreeRDP client there, so the real-client test skips
+# The real-keyring tests run on Linux, against a GNOME Keyring in a D-Bus session
+# of its own, and on Windows, against the runner's Credential Manager.
 name: test
 
 on:
@@ -16,14 +18,23 @@ jobs:
     container: ubuntu:rolling
     steps:
       - uses: actions/checkout@v5
-      - name: Install Python, Tk, keyring, pytest, Xvfb, xdotool and the FreeRDP SDL client
+      - name: Install Python, Tk, keyring, pytest, Xvfb, xdotool, the FreeRDP SDL client, D-Bus and GNOME Keyring
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-            python3 python3-tk python3-keyring python3-pytest xvfb xauth xdotool freerdp3-sdl
-      - run: xvfb-run -a -s "-screen 0 1400x1000x24" python3 -m pytest -v -rs
+            python3 python3-tk python3-keyring python3-pytest xvfb xauth xdotool freerdp3-sdl \
+            dbus gnome-keyring
+      # The keyring unlocked with a throwaway password. XDG_RUNTIME_DIR is short
+      # on purpose: its keyring/control socket must fit the 108 bytes of a socket path.
+      - run: |
+          mkdir -m 700 -p "$XDG_RUNTIME_DIR"
+          xvfb-run -a -s "-screen 0 1400x1000x24" dbus-run-session -- sh -c '
+            eval "$(printf ci | gnome-keyring-daemon --unlock --components=secrets)"
+            python3 -m pytest -v -rs'
         env:
           PYTHONPATH: src
+          XDG_RUNTIME_DIR: /tmp/xdg
+          FREERDP_TK_REAL_KEYRING: "1"
 
   desktop:
     strategy:
@@ -33,6 +44,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       UV_PYTHON_PREFERENCE: only-managed
+      FREERDP_TK_REAL_KEYRING: ${{ matrix.os == 'windows-latest' && '1' || '' }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
