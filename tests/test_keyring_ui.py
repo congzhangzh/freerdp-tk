@@ -172,3 +172,47 @@ def test_the_password_dialog(make_ui):
 
     ui.root.after(200, answer)
     assert app.ask_password(ui.root, "Password for alice on lab", True) == ("s3cret!", False)
+
+
+def test_a_rejected_saved_password_is_asked_again_and_replaced(make_ui, fake_client,
+                                                               memory_keyring, monkeypatch):
+    memory_keyring.set_password(*credentials.key(LAB), "old")
+    monkeypatch.setenv("FAKE_REJECT", "old")
+    asked = []
+    monkeypatch.setattr(app, "ask_password", prompt(("new", True), asked))
+    ui = make_ui()
+    fill(ui, "lab")
+    click(ui, button(ui, "Connect"))
+    pump(ui, lambda: fake_client.exists() and "/p:new" in fake_client.read_text()
+         and ui.running_list.size() == 0)
+    assert len(asked) == 1 and "did not accept the password for alice on lab" in asked[0][0]
+    assert memory_keyring.items == {credentials.key(LAB): "new"}
+    assert "exited with code 132" in log_text(ui)
+
+
+def test_a_rejected_password_cancelled_stays_off(make_ui, fake_client, memory_keyring,
+                                                 monkeypatch):
+    memory_keyring.set_password(*credentials.key(LAB), "old")
+    monkeypatch.setenv("FAKE_REJECT", "old")
+    asked = []
+    monkeypatch.setattr(app, "ask_password", prompt(None, asked))
+    ui = make_ui()
+    fill(ui, "lab")
+    assert "/p:old" in connect(ui, fake_client)
+    pump(ui, lambda: asked)
+    assert "lab" not in ui.passwords  # the next connect reads the keyring again
+    assert memory_keyring.items == {credentials.key(LAB): "old"}  # cancelling changes nothing
+
+
+def test_a_locked_account_is_not_asked_again(make_ui, fake_client, memory_keyring, monkeypatch):
+    memory_keyring.set_password(*credentials.key(LAB), "old")
+    monkeypatch.setenv("FAKE_REJECT", "old")
+    monkeypatch.setenv("FAKE_REJECT_CODE", "135")  # account locked out
+    asked = []  # not no_prompt: Tk only prints what an after_idle callback raises
+    monkeypatch.setattr(app, "ask_password", prompt(None, asked))
+    ui = make_ui()
+    fill(ui, "lab")
+    assert "/p:old" in connect(ui, fake_client)
+    for _ in range(10):
+        ui.root.update()  # give an after_idle prompt its chance
+    assert "exited with code 135" in log_text(ui) and asked == []

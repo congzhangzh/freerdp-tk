@@ -66,6 +66,11 @@ FIELDS = {  # name -> default; everything a saved connection stores
 }
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_TIMEOUT = 30  # seconds to wait for the before command's port
+# Client exit codes that mean "try another password", the same in the X11, SDL2
+# and SDL3 clients: authentication failed, logon failure, wrong password, no
+# or missing credentials. Not a locked, expired or disabled account: another
+# password would not help there.
+BAD_PASSWORD = {132, 134, 154, 159}
 SUPERVISE = str(Path(__file__).with_name("supervise.py"))
 
 
@@ -413,6 +418,7 @@ class Session:
     def __init__(self, name: str, v: dict, values: dict, argv: list[str], stdin: str | None,
                  notes: list[str], out: queue.Queue):
         Session.count += 1
+        self.name = name
         self.label = f"{name} [{Session.count}]"
         self.v, self.values, self.argv, self.stdin, self.notes = v, values, argv, stdin, notes
         quote = (lambda x: x) if IS_WIN else shlex.quote
@@ -421,6 +427,7 @@ class Session:
         self.client: subprocess.Popen | None = None
         self.helper: subprocess.Popen | None = None  # the before command
         self.stopping = False
+        self.code: int | None = None  # the client's exit code
         threading.Thread(target=self._run, daemon=True).start()
 
     def say(self, text: str):
@@ -512,7 +519,8 @@ class Session:
         for note in self.notes:
             self.say(note)
         self._pump(self.client)
-        self.say(f"exited with code {self.client.wait()}")
+        self.code = self.client.wait()
+        self.say(f"exited with code {self.code}")
 
     def _after(self):
         command = expand(self.v["post"].strip(), self.shell_values)
@@ -792,15 +800,9 @@ class App(ttk.Frame):
         if password is None and v["user"].strip():
             password = self._load_password(name, v)
         if password is None and v["user"].strip():
-            answer = ask_password(self.root, f"Password for {v['user']} on {name}",
-                                  v["remember_password"], self.keyring_problem)
-            if answer is None:
+            password = self._ask_password(name, v, f"Password for {v['user']} on {name}")
+            if password is None:
                 return False
-            password, remember = answer
-            self.passwords[name] = password
-            self._set_remember(name, remember)
-            if remember:
-                self._store_password(v, password)
         values = {"h": v["host"].strip(), "p": v["port"].strip() or "3389",
                   "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
@@ -826,6 +828,36 @@ class App(ttk.Frame):
         self.running_list.insert("end", session.label)
         return True
 
+    def _ask_password(self, name: str, v: dict, prompt: str) -> str | None:
+        """Ask for the password of v, and save it if the box is left ticked."""
+        answer = ask_password(self.root, prompt, v["remember_password"], self.keyring_problem)
+        if answer is None:
+            return None
+        password, remember = answer
+        self.passwords[name] = password
+        self._set_remember(name, remember)
+        if remember:
+            self._store_password(v, password)
+        return password
+
+    def _rejected(self, session: Session):
+        """The server turned the password down: ask for another one and connect again."""
+        name, v = session.name, session.v
+        self.passwords.pop(name, None)  # neither memory nor the keyring has the right one
+        if not v["user"].strip():
+            return
+        self._log(f"{name}: the server did not accept the password")
+        password = self._ask_password(
+            name, {**v, "remember_password": self._remembers(name, v)},
+            f"The server did not accept the password for {v['user']} on {name}.\n"
+            "Try another one:")
+        if password is not None:
+            self._launch(name, v, password)
+
+    def _remembers(self, name: str, v: dict) -> bool:
+        """The remember box of a connection as it is now, which the dialog may have changed."""
+        return self.saved.get(name, v).get("remember_password", v["remember_password"])
+
     def _disconnect(self):
         for index in self.running_list.curselection():
             self.sessions[index].stop()
@@ -840,6 +872,8 @@ class App(ttk.Frame):
                     index = self.sessions.index(session)
                     self.sessions.pop(index)
                     self.running_list.delete(index)
+                    if session.code in BAD_PASSWORD and not session.stopping:
+                        self.after_idle(self._rejected, session)
         except queue.Empty:
             pass
         self.after(100, self._drain_output)
