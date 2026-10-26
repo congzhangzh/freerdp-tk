@@ -31,7 +31,11 @@ On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`
 
 ## Passwords
 
-- Passwords are **never written to disk**. They are asked for once and kept in memory until the window closes.
+- **Saved in the system keyring, never in a file.** With *Remember it in the system keyring* ticked (the default), the password goes to the system's own store: Credential Manager on Windows, the Keychain on macOS, the Secret Service (GNOME Keyring, KeePassXC) or KWallet on Linux. From then on a double-click connects without asking. The connections file only keeps whether the box is ticked.
+- The password dialog has the same box: untick it, and the password stays in memory only, until the window closes. *Forget* removes a saved password. Deleting a connection removes its password too, unless another saved connection logs in to the same account.
+- An entry is named after the account it logs in to, `freerdp-tk/<domain\user>@<host>:<port>`, not after the connection. Renaming a connection keeps its password, and two connections to one account share it.
+- **No usable keyring** (on Linux: no Secret Service or KWallet, or no D-Bus session, as over plain SSH): the box is greyed out with the reason, and passwords are asked for and kept in memory only. freerdp-tk never falls back to a file. A locked keyring is unlocked through the system's own prompt; if that fails or is cancelled, freerdp-tk asks for the password instead.
+- **What the keyring protects:** the password on disk, and from the other users of the computer. A program that runs as you can usually read it: Credential Manager and an unlocked Secret Service hand it to any process of your session, while the Keychain asks you first unless the program is on the entry's access list.
 - With FreeRDP 3, all arguments are passed to the client through standard input (`/args-from:stdin`). The password therefore never appears in the process list (`ps`, Task Manager).
 - FreeRDP 2 has no such option, so the password goes on the command line, and the log warns you about it.
 

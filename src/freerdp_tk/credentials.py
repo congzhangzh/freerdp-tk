@@ -15,6 +15,8 @@ Only the backends in SAFE are used, so a password never ends up in a plain
 file, whatever keyring is configured to prefer.
 """
 
+import sys
+
 APP = "freerdp-tk"
 DEFAULT_PORT = "3389"
 SAFE = {  # keyring backends that keep passwords in the system's own store
@@ -66,7 +68,9 @@ def backend():
         if _name(b) in SAFE:
             return b
     offered = ", ".join(_name(b) for b in found) or "nothing"
-    raise CredentialError(f"no system keyring found (keyring offers {offered})")
+    hint = (" Linux needs a Secret Service (such as GNOME Keyring or KeePassXC) or KWallet,"
+            " on the session's D-Bus." if sys.platform.startswith("linux") else "")
+    raise CredentialError(f"no system keyring found (keyring offers {offered}).{hint}")
 
 
 def problem() -> str:
