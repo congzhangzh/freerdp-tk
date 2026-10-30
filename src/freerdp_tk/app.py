@@ -87,10 +87,17 @@ def config_dir() -> Path:
 def find_clients() -> list[str]:
     """SDL clients on PATH, then in local FreeRDP build trees.
 
-    Build trees are searched in ~/projects/FreeRDP and in every source tree
-    listed in $FREERDP_TK_TREES (separated like PATH).
+    PATH decides first: a client in an earlier folder comes before one in a
+    later folder, whatever their names (a release puts its own bin/ first,
+    and its sdl-freerdp must not lose to the system's sdl-freerdp3);
+    CLIENT_NAMES orders the clients within one folder. Build trees are
+    searched in ~/projects/FreeRDP and in every source tree listed in
+    $FREERDP_TK_TREES (separated like PATH).
     """
-    found = [p for p in (shutil.which(n) for n in CLIENT_NAMES) if p]
+    found = []
+    for folder in os.environ.get("PATH", os.defpath).split(os.pathsep):
+        if folder:
+            found += [p for p in (shutil.which(n, path=folder) for n in CLIENT_NAMES) if p]
     trees = [Path.home() / "projects" / "FreeRDP"]
     extra = os.environ.get("FREERDP_TK_TREES", "").split(os.pathsep)
     trees += [Path(t).expanduser() for t in extra if t]

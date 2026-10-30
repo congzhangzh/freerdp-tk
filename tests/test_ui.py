@@ -58,16 +58,18 @@ def test_save_and_reload_a_connection(make_ui, fake_client, home):
     assert again.saved_list.get(0, "end") == ("lab",)
 
 
+def program(path):
+    """An empty executable at path (with .exe on Windows)."""
+    from freerdp_tk import app
+    path = path.with_name(path.name + app.EXE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("")
+    path.chmod(0o755)
+    return str(path)
+
+
 def test_only_sdl_clients_are_found(home, monkeypatch):
     from freerdp_tk import app
-
-    def program(path):
-        path = path.with_name(path.name + app.EXE)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("")
-        path.chmod(0o755)
-        return str(path)
-
     on_path = [program(home / "bin" / n) for n in ("xfreerdp3", "wfreerdp", "sdl-freerdp3")]
     build = home / "projects" / "FreeRDP" / "build" / "client"
     program(build / "SDL" / "SDL2" / "sdl2-freerdp")
@@ -75,6 +77,19 @@ def test_only_sdl_clients_are_found(home, monkeypatch):
     monkeypatch.setenv("PATH", str(home / "bin"))
     found = [os.path.normcase(c) for c in app.find_clients()]  # which() gives PATHEXT's .EXE
     assert found == [os.path.normcase(on_path[2]), os.path.normcase(sdl3)]
+
+
+def test_the_first_folder_on_path_wins(home, monkeypatch):
+    from freerdp_tk import app
+    # a release's launcher puts its own bin/ before the system's folders;
+    # its sdl-freerdp must come before the system's sdl-freerdp3, which
+    # comes first by name
+    own = program(home / "release" / "bin" / "sdl-freerdp")
+    system = program(home / "usr" / "bin" / "sdl-freerdp3")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(home / "release" / "bin"),
+                                                str(home / "usr" / "bin")]))
+    found = [os.path.normcase(c) for c in app.find_clients()]
+    assert found == [os.path.normcase(own), os.path.normcase(system)]
 
 
 def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):

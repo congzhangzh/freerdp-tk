@@ -6,7 +6,7 @@ It runs on Linux, Windows and macOS and needs Python with its built-in Tkinter, 
 ![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
 
 - **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
-- **Finds the client for you:** "(auto)" takes the first FreeRDP SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`) or in a local build tree. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
+- **Finds the client for you:** "(auto)" takes the first FreeRDP SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`) or in a local build tree. `PATH` order decides, whatever the names: a release that puts its own `bin/` first gets its own client, not the system's. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
 - **Form instead of flags:** display, monitors (*List…* asks the client which ones it sees, then you tick them), graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
 - **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
 - **Session log:** runs several sessions at once and shows each client's output.
