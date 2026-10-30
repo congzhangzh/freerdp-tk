@@ -30,9 +30,10 @@ classifiers = [
 Homepage = "https://github.com/congzhangzh/freerdp-tk"
 Issues = "https://github.com/congzhangzh/freerdp-tk/issues"
 
-# A GUI script: on Windows it starts without a console window.
+# A GUI script: on Windows it starts without a console window. start.py
+# checks for Tk before the window's module imports it.
 [project.gui-scripts]
-freerdp-tk = "freerdp_tk.app:main"
+freerdp-tk = "freerdp_tk.start:main"
 
 # The version comes from the git tag, which has no prefix: tag 0.2.0 builds 0.2.0
 # (the older tags v0.1.x build 0.1.x).

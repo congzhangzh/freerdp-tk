@@ -1,3 +1,3 @@
-from freerdp_tk.app import main
+from freerdp_tk.start import main
 
 main()

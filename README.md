@@ -14,8 +14,8 @@ It runs on Linux, Windows and macOS and needs Python with its built-in Tkinter, 
 ## Install
 
 ```bash
-uv tool install freerdp-tk   # or: pipx install freerdp-tk
-freerdp-tk
+uvx freerdp-tk               # run it once, without installing
+uv tool install freerdp-tk   # or install it: then just freerdp-tk (pipx install freerdp-tk works too)
 ```
 
 You also need FreeRDP 3 with its SDL client:
@@ -27,7 +27,11 @@ You also need FreeRDP 3 with its SDL client:
 | macOS | `brew install freerdp` |
 | Windows | a FreeRDP 3 build containing `sdl-freerdp.exe`, on your `PATH` |
 
-On Linux, a system Python may need its Tk package (`sudo apt install python3-tk`). The Pythons that `uv` installs already include Tk.
+**Tk:** the window needs a Python with Tk. The Pythons that `uv` installs include it; a Linux system Python often does not (`sudo apt install python3-tk`, `sudo dnf install python3-tkinter`). `uv` takes the system Python when there is one, so:
+
+- started by `uvx`, freerdp-tk notices a Python without Tk and starts again with uv's own Python (it downloads one the first time); `uvx --managed-python freerdp-tk` goes there directly;
+- installed with `uv tool install`, use `uv tool install --managed-python freerdp-tk` on such a system;
+- anywhere else, it says what to install and exits.
 
 ## Passwords
 
