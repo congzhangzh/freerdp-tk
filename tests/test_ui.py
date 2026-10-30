@@ -124,12 +124,12 @@ def test_list_and_pick_monitors(make_ui, fake_client, monkeypatch):
     monkeypatch.setattr(app, "pick_monitors", pick)
     ui = make_ui()
     ui.vars["monitors"].set("1")
-    click(ui, button(ui, "List…"))
+    click(ui, button(ui, f"List{app.GLYPHS['dots']}"))
     pump(ui, lambda: ui.vars["monitors"].get() == "2")
     assert shown == [([("1", "Built-in Retina Display", True), ("2", "DELL U2720Q", False)],
                       ["1"])]
     assert "/monitors:2" in ui.preview.get("1.0", "end")
-    assert button(ui, "List…").instate(["!disabled"])
+    assert button(ui, f"List{app.GLYPHS['dots']}").instate(["!disabled"])
 
 
 def test_no_monitors_listed(make_ui, fake_client, monkeypatch):
@@ -138,7 +138,7 @@ def test_no_monitors_listed(make_ui, fake_client, monkeypatch):
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
     monkeypatch.setenv("FAKE_MONITORS", "listing 0 monitors:")
     ui = make_ui()
-    click(ui, button(ui, "List…"))
+    click(ui, button(ui, f"List{app.GLYPHS['dots']}"))
     pump(ui, lambda: errors)
     assert "found no monitors" in errors[0] and "listing 0 monitors:" in log_text(ui)
 

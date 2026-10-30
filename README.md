@@ -33,6 +33,8 @@ You also need FreeRDP 3 with its SDL client:
 - installed with `uv tool install`, use `uv tool install --managed-python freerdp-tk` on such a system;
 - anywhere else, it says what to install and exits.
 
+On Linux, the Tk in uv's Pythons draws with the X core fonts (it is built without Xft), which often lack `…` and `•`: freerdp-tk then shows `...` and `*` instead.
+
 ## Passwords
 
 - **Saved in the system keyring, never in a file.** With *Remember it in the system keyring* ticked (the default), the password goes to the system's own store: Credential Manager on Windows, the Keychain on macOS, the Secret Service (GNOME Keyring, KeePassXC) or KWallet on Linux. From then on a double-click connects without asking. The connections file only keeps whether the box is ticked.

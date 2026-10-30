@@ -1,4 +1,4 @@
-"""Starting without Tk; no display needed."""
+"""Starting without Tk, and the glyphs for a Tk without Xft; no display needed."""
 
 import sys
 
@@ -54,3 +54,31 @@ def test_without_tk_it_says_what_to_do(monkeypatch):
         start.main()
     assert "uvx --managed-python freerdp-tk" in str(stop.value.code)
     assert "python3-tk" in str(stop.value.code)
+
+
+class FakeTk:
+    def __init__(self, system, fonts):
+        self.answers = {("tk", "windowingsystem"): system,
+                        ("::tk::pkgconfig", "get", "fontsystem"): fonts}
+
+    def call(self, *words):
+        return self.answers[words]
+
+
+class FakeRoot:
+    def __init__(self, system, fonts):
+        self.tk = FakeTk(system, fonts)
+
+
+@pytest.mark.parametrize("system, fonts, plain", [
+    ("x11", "x11", True),    # Tk without Xft: X core fonts
+    ("x11", "xft", False),
+    ("win32", "", False),
+    ("aqua", "", False),
+])
+def test_glyphs(monkeypatch, system, fonts, plain):
+    from freerdp_tk import app
+    monkeypatch.setattr(app, "GLYPHS", dict(app.GLYPHS))
+    assert app.use_glyphs(FakeRoot(system, fonts)) is plain
+    assert app.GLYPHS["dots"] == ("..." if plain else "…")
+    assert app.GLYPHS["dot"] == ("*" if plain else "•")

@@ -55,6 +55,13 @@ GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV
 CERT_CHOICES = ["tofu", "ignore", "deny"]
 LOG_LEVELS = ["(default)", "OFF", "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
 HIDDEN = "********"
+# The few characters outside ASCII that the window shows. A Tk built
+# without Xft, as in the standalone Pythons that uv and the kit's releases
+# bring, draws with X core fonts, which often lack them and show something
+# else; use_glyphs() swaps in plain ASCII there.
+FANCY_GLYPHS = {"dots": "\u2026", "dot": "\u2022", "arrow": "\u2192"}
+PLAIN_GLYPHS = {"dots": "...", "dot": "*", "arrow": "->"}
+GLYPHS = dict(FANCY_GLYPHS)
 
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
@@ -420,6 +427,17 @@ def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str]) -> list[
     return answer[0] if answer else None
 
 
+def use_glyphs(root: tk.Tk) -> bool:
+    """Plain ASCII glyphs when Tk draws with X core fonts; True when it does."""
+    try:
+        core = (root.tk.call("tk", "windowingsystem") == "x11"
+                and root.tk.call("::tk::pkgconfig", "get", "fontsystem") != "xft")
+    except tk.TclError:  # a Tk that does not say
+        core = False
+    GLYPHS.update(PLAIN_GLYPHS if core else FANCY_GLYPHS)
+    return core
+
+
 def ask_password(root: tk.Tk, prompt: str, remember: bool,
                  problem: str = "") -> tuple[str, bool] | None:
     """Ask for a password, with a box to tick for saving it in the system keyring.
@@ -437,7 +455,7 @@ def ask_password(root: tk.Tk, prompt: str, remember: bool,
     password, keep = tk.StringVar(), tk.BooleanVar(value=remember)
     answer = []
     ttk.Label(frame, text=prompt).pack(anchor="w")
-    entry = ttk.Entry(frame, textvariable=password, show="•", width=36)
+    entry = ttk.Entry(frame, textvariable=password, show=GLYPHS["dot"], width=36)
     entry.pack(fill="x", pady=(4, 6))
     box = ttk.Checkbutton(frame, text="Save it in the system keyring", variable=keep)
     box.pack(anchor="w")
@@ -596,6 +614,7 @@ class App(ttk.Frame):
     def __init__(self, root: tk.Tk):
         super().__init__(root, padding=8)
         self.root = root
+        use_glyphs(root)
         self.vars = {k: tk.BooleanVar(value=v) if isinstance(v, bool) else tk.StringVar(value=v)
                      for k, v in FIELDS.items()}
         self.name = tk.StringVar()
@@ -705,7 +724,8 @@ class App(ttk.Frame):
         client = ttk.Frame(f)
         ttk.Combobox(client, textvariable=self.vars["client"], values=[AUTO, *self.clients]).pack(
             side="left", fill="x", expand=True)
-        ttk.Button(client, text="…", width=3, command=self._browse_client).pack(side="left")
+        ttk.Button(client, text=GLYPHS["dots"], width=3,
+                   command=self._browse_client).pack(side="left")
         self._row(f, 1, "Client", client)
         host = ttk.Entry(f, textvariable=self.vars["host"])
         self._row(f, 2, "Host", host)
@@ -714,7 +734,7 @@ class App(ttk.Frame):
         self._row(f, 4, "User", ttk.Entry(f, textvariable=self.vars["user"]))
         self._row(f, 5, "Domain", ttk.Entry(f, textvariable=self.vars["domain"]))
         password = ttk.Frame(f)
-        ttk.Entry(password, textvariable=self.password, show="•").pack(
+        ttk.Entry(password, textvariable=self.password, show=GLYPHS["dot"]).pack(
             side="left", fill="x", expand=True)
         self.forget = ttk.Button(password, text="Forget", width=7, command=self._forget_password)
         self.forget.pack(side="left")
@@ -741,11 +761,12 @@ class App(ttk.Frame):
         monitors = ttk.Frame(f)
         ttk.Entry(monitors, textvariable=self.vars["monitors"]).pack(
             side="left", fill="x", expand=True)
-        self.list_monitors = ttk.Button(monitors, text="List…", command=self._pick_monitors)
+        self.list_monitors = ttk.Button(monitors, text=f"List{GLYPHS['dots']}",
+                                        command=self._pick_monitors)
         self.list_monitors.pack(side="left")
         self._row(f, 4, "Monitors", monitors)
-        ttk.Label(f, text="Full screen on just these (IDs from List…); empty: as above",
-                  foreground="gray").grid(row=5, column=1, sticky="w")
+        ttk.Label(f, text=f"Full screen on just these (IDs from List{GLYPHS['dots']}); "
+                          "empty: as above", foreground="gray").grid(row=5, column=1, sticky="w")
         self._row(f, 6, "Graphics codec", ttk.Combobox(f, textvariable=self.vars["gfx"],
                                                        values=GFX_CHOICES, state="readonly"))
         return f
@@ -758,7 +779,8 @@ class App(ttk.Frame):
         self._check(f, 3, "Share home folder", "home_drive")
         drive = ttk.Frame(f)
         ttk.Entry(drive, textvariable=self.vars["drive"]).pack(side="left", fill="x", expand=True)
-        ttk.Button(drive, text="…", width=3, command=self._browse_drive).pack(side="left")
+        ttk.Button(drive, text=GLYPHS["dots"], width=3,
+                   command=self._browse_drive).pack(side="left")
         self._row(f, 4, "Share folder", drive)
         return f
 
@@ -781,7 +803,7 @@ class App(ttk.Frame):
         self._row(f, 4, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]))
         self._row(f, 5, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]))
         ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=6, column=1, sticky="w")
-        ttk.Button(f, text="Fill in: SSH tunnel…", command=self._ssh_tunnel).grid(
+        ttk.Button(f, text=f"Fill in: SSH tunnel{GLYPHS['dots']}", command=self._ssh_tunnel).grid(
             row=7, column=1, sticky="w", pady=(6, 0))
         return f
 
@@ -857,8 +879,8 @@ class App(ttk.Frame):
         client = self._resolve_client(v["client"])
         if not client:
             messagebox.showerror(APP, f"{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
-                                      "with its SDL client, or choose one under Connection → "
-                                      "Client.")
+                                      "with its SDL client, or choose one under Connection "
+                                      f"{GLYPHS['arrow']} Client.")
             return False
         if client not in self.versions:
             self.versions[client] = client_major_version(client)
