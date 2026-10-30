@@ -92,6 +92,16 @@ def test_the_first_folder_on_path_wins(home, monkeypatch):
     assert found == [os.path.normcase(own), os.path.normcase(system)]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need extra rights on Windows")
+def test_one_program_is_listed_once(home, monkeypatch):
+    from freerdp_tk import app
+    # merged /usr: /bin is a link to /usr/bin, and PATH has both
+    real = program(home / "usr" / "bin" / "sdl-freerdp3")
+    (home / "bin").symlink_to(home / "usr" / "bin")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(home / "usr" / "bin"), str(home / "bin")]))
+    assert app.find_clients() == [real]
+
+
 def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):
     from freerdp_tk import app
     errors = []

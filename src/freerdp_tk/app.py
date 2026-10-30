@@ -113,7 +113,12 @@ def find_clients() -> list[str]:
             for path in sorted(build.glob(BUILD_GLOB)):
                 if path.is_file() and os.access(path, os.X_OK) and path.suffix in ("", EXE):
                     found.append(str(path))
-    return list(dict.fromkeys(found))
+    # one program once, under the first path found: /bin and /usr/bin are one
+    # folder on merged-/usr systems (Debian, Fedora), and both are on PATH
+    unique: dict[str, str] = {}
+    for path in found:
+        unique.setdefault(os.path.realpath(path), path)
+    return list(unique.values())
 
 
 def client_major_version(client: str) -> int:
