@@ -121,15 +121,20 @@ def find_clients() -> list[str]:
     return list(unique.values())
 
 
-def client_major_version(client: str) -> int:
-    """Major FreeRDP version of a client, 0 when it cannot be told."""
+VERSION_TIMEOUT = 15  # seconds for "/version": a busy computer can take a while to start it
+
+
+def client_major_version(client: str) -> int | None:
+    """Major FreeRDP version of a client, None when it cannot be told (it did not
+    start, did not answer in time, or said no version). A busy computer can be slow
+    to start a client: unknown is not old."""
     try:
-        out = subprocess.run([client, "/version"], capture_output=True, text=True, timeout=5,
-                             **no_console()).stdout
+        out = subprocess.run([client, "/version"], capture_output=True, text=True,
+                             timeout=VERSION_TIMEOUT, **no_console()).stdout
     except (OSError, subprocess.SubprocessError):
-        return 0
+        return None
     match = re.search(r"version (\d+)\.", out)
-    return int(match.group(1)) if match else 0
+    return int(match.group(1)) if match else None
 
 
 MONITOR_LINE = re.compile(  # "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors()
@@ -630,7 +635,7 @@ class App(ttk.Frame):
         self.passwords: dict[str, str] = {}  # per saved connection, memory only
         self.sessions: list[Session] = []
         self.output: queue.Queue = queue.Queue()
-        self.versions: dict[str, int] = {}
+        self.versions: dict[str, int] = {}  # known versions only: an unknown one is asked again
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -888,8 +893,15 @@ class App(ttk.Frame):
                                       f"{GLYPHS['arrow']} Client.")
             return False
         if client not in self.versions:
-            self.versions[client] = client_major_version(client)
-        if self.versions[client] < 3:
+            major = client_major_version(client)
+            if major is None:
+                # tried anyway: a FreeRDP 2 client then fails on /args-from:stdin, in its
+                # own words in the log, and the next Connect asks again
+                self._log(f"{name}: could not tell {client}'s version; trying it "
+                          "(freerdp-tk needs FreeRDP 3)")
+            else:
+                self.versions[client] = major
+        if self.versions.get(client, 3) < 3:
             messagebox.showerror(APP, f"{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
                                       "passes the password on standard input "
                                       "(/args-from:stdin), which needs FreeRDP 3.")
