@@ -119,8 +119,8 @@ def test_auto_passes_over_an_old_client(make_ui, fake_client, monkeypatch, home)
     own = program(home / "wheel" / "client" / "sdl-freerdp")
     monkeypatch.setattr(app, "BUNDLED", Path(own))
     monkeypatch.setenv("FAKE_VERSION", "2.11.7")
-    real = app.client_major_version
-    monkeypatch.setattr(app, "client_major_version", lambda c: 3 if c == own else real(c))
+    real = app.probe_client
+    monkeypatch.setattr(app, "probe_client", lambda c: (3, "") if c == own else real(c))
     errors = []
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
     ui = make_ui()
@@ -136,8 +136,7 @@ def test_a_client_that_cannot_start_says_why(make_ui, fake_client, monkeypatch):
     from freerdp_tk import app
     errors = []
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
-    monkeypatch.setattr(app, "client_major_version", lambda client: 0)
-    monkeypatch.setattr(app, "client_start_error", lambda client: "no libpulse.so.0")
+    monkeypatch.setattr(app, "probe_client", lambda client: (None, "no libpulse.so.0"))
     ui = make_ui()
     assert ui._launch("demo", {"host": "rdp.example.com"}, None) is False
     assert len(errors) == 1 and "did not start" in errors[0] and "libpulse" in errors[0]
@@ -155,6 +154,38 @@ def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):
     click(ui, button(ui, "Connect"))
     assert len(errors) == 1 and "is not a FreeRDP 3 client" in errors[0]
     assert not fake_client.exists()  # never started: the password stays off the command line
+
+
+def test_a_client_of_unknown_version_is_tried(make_ui, fake_client, monkeypatch):
+    """A client whose /version cannot be read (too slow on a busy computer, or no
+    version in its answer) is started all the same, with a word in the log: unknown
+    is not old (kit run 41180196907 refused a FreeRDP 3 client that way)."""
+    from freerdp_tk import app
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    monkeypatch.setenv("FAKE_VERSION", "unknown")
+    ui = make_ui()
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    type_into(ui, entry_for(ui, ui.password), "s3cret!")
+    click(ui, button(ui, "Connect"))
+    pump(ui, fake_client.exists)
+    assert errors == [] and fake_client.exists()
+    assert "could not tell" in log_text(ui)
+
+
+def test_auto_asks_an_unknown_client_once(make_ui, fake_client, monkeypatch):
+    """Auto with a client it cannot tell: one /version per Connect, not one for auto
+    and one more for Connect, since each can wait VERSION_TIMEOUT on the Tk thread."""
+    from freerdp_tk import app
+    asked = []
+    monkeypatch.setattr(app, "probe_client", lambda c: asked.append(c) or (None, ""))
+    ui = make_ui()
+    ui.clients = ui.clients[:1]
+    ui.vars["client"].set(app.AUTO)
+    ui._launch("demo", {"host": "rdp.example.com", "client": app.AUTO}, "s3cret!")
+    pump(ui, fake_client.exists)
+    assert asked == ui.clients and fake_client.exists()
+    assert ui.clients[0] not in ui.versions  # unknown is asked again next time
 
 
 def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):

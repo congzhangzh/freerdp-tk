@@ -163,25 +163,36 @@ def find_clients() -> list[str]:
     return list(unique.values())
 
 
-def client_major_version(client: str) -> int:
-    """Major FreeRDP version of a client, 0 when it cannot be told."""
+VERSION_TIMEOUT = 15  # seconds for "/version": a busy computer can take a while to start it
+
+
+def probe_client(client: str) -> tuple[int | None, str]:
+    """Runs "client /version" once: (its major FreeRDP version, None when it cannot
+    be told; what it said when it could not start at all, such as a library it
+    lacks, else ""). A busy computer can be slow to start a client: slow is
+    neither old nor broken, so a timeout gives (None, "")."""
     try:
-        out = subprocess.run([client, "/version"], capture_output=True, text=True, timeout=5,
-                             **no_console()).stdout
-    except (OSError, subprocess.SubprocessError):
-        return 0
-    match = re.search(r"version (\d+)\.", out)
-    return int(match.group(1)) if match else 0
+        done = subprocess.run([client, "/version"], capture_output=True, text=True,
+                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+    except subprocess.TimeoutExpired:
+        return None, ""
+    except (OSError, subprocess.SubprocessError) as e:
+        return None, str(e)
+    match = re.search(r"version (\d+)\.", done.stdout)
+    if match:
+        return int(match.group(1)), ""
+    return None, done.stderr.strip() if done.returncode else ""
+
+
+def client_major_version(client: str) -> int | None:
+    """Major FreeRDP version of a client, None when it cannot be told (it did not
+    start, did not answer in time, or said no version). Unknown is not old."""
+    return probe_client(client)[0]
 
 
 def client_start_error(client: str) -> str:
-    """What a client says when it cannot even start, such as a library it lacks."""
-    try:
-        done = subprocess.run([client, "/version"], capture_output=True, text=True,
-                              errors="replace", timeout=5, **no_console())
-    except (OSError, subprocess.SubprocessError) as e:
-        return str(e)
-    return done.stderr.strip() if done.returncode else ""
+    """What a client says when it cannot even start; "" when it started or was slow."""
+    return probe_client(client)[1]
 
 
 MONITOR_LINE = re.compile(  # "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors()
@@ -784,7 +795,7 @@ class App(ttk.Frame):
         self.passwords: dict[str, str] = {}  # per saved connection, memory only
         self.sessions: list[Session] = []
         self.output: queue.Queue = queue.Queue()
-        self.versions: dict[str, int] = {}
+        self.versions: dict[str, int] = {}  # known versions only: an unknown one is asked again
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1106,16 +1117,24 @@ class App(ttk.Frame):
             return next(iter(usable or self.clients), "")
         return choice if shutil.which(choice) or Path(choice).is_file() else ""
 
-    def _ask_versions(self) -> None:
+    def _ask_versions(self) -> dict[str, str]:
         """Auto takes the first client that is FreeRDP 3: a FreeRDP 2 client on
         PATH must not hide one further down, such as the one in the wheel. Only
         before connecting: _resolve_client runs on every key press, for the
-        command preview, and must not start programs."""
+        command preview, and must not start programs. Returns the client it could
+        not tell, with what it said if it did not start, so Connect asks it no
+        second time; auto takes that one, since unknown is not old."""
         for client in self.clients:
-            if client not in self.versions:
-                self.versions[client] = client_major_version(client)
-            if self.versions[client] >= 3:
-                return
+            if client in self.versions:
+                major = self.versions[client]
+            else:
+                major, error = probe_client(client)
+                if major is None:
+                    return {client: error}
+                self.versions[client] = major
+            if major >= 3:
+                break
+        return {}
 
     def _command_text(self) -> str:
         v = self._form()
@@ -1164,8 +1183,7 @@ class App(ttk.Frame):
         its way, not that it started.
         """
         v = {**FIELDS, **v}
-        if v["client"].strip() in ("", AUTO):
-            self._ask_versions()
+        unknown = self._ask_versions() if v["client"].strip() in ("", AUTO) else {}
         client = self._resolve_client(v["client"])
         if not client:
             messagebox.showerror(APP, tr("{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
@@ -1173,15 +1191,23 @@ class App(ttk.Frame):
                                          "{arrow} Client.", name=name, arrow=GLYPHS["arrow"]))
             return False
         if client not in self.versions:
-            self.versions[client] = client_major_version(client)
-        if self.versions[client] < 3:
-            error = client_start_error(client)
-            messagebox.showerror(APP, tr("{name}: {client} did not start:\n{error}", name=name,
-                                         client=client, error=error) if error else
-                                 tr("{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
-                                    "passes the password on standard input "
-                                    "(/args-from:stdin), which needs FreeRDP 3.",
-                                    name=name, client=client))
+            major, error = (None, unknown[client]) if client in unknown else probe_client(client)
+            if major is None:
+                if error:  # it cannot start at all, such as a library it lacks
+                    messagebox.showerror(APP, tr("{name}: {client} did not start:\n{error}",
+                                                 name=name, client=client, error=error))
+                    return False
+                # tried anyway: a FreeRDP 2 client then fails on /args-from:stdin, in its
+                # own words in the log, and the next Connect asks again
+                self._log(f"{name}: could not tell {client}'s version; trying it "
+                          "(freerdp-tk needs FreeRDP 3)")
+            else:
+                self.versions[client] = major
+        if self.versions.get(client, 3) < 3:
+            messagebox.showerror(APP, tr("{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
+                                         "passes the password on standard input "
+                                         "(/args-from:stdin), which needs FreeRDP 3.",
+                                         name=name, client=client))
             return False
         if not v["host"].strip():
             messagebox.showerror(APP, tr("Enter a host to connect to."))

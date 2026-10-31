@@ -18,7 +18,7 @@ from helpers import button, click, entry_for, log_text, pump, type_into
 @pytest.fixture
 def real_client(home):
     clients = app.find_clients()
-    if not clients or app.client_major_version(clients[0]) < 3:
+    if not clients or (app.client_major_version(clients[0]) or 0) < 3:
         pytest.skip("no FreeRDP 3 SDL client installed")
     return clients[0]
 
