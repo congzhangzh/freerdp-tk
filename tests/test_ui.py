@@ -115,6 +115,23 @@ def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):
     assert not fake_client.exists()  # never started: the password stays off the command line
 
 
+def test_a_client_of_unknown_version_is_tried(make_ui, fake_client, monkeypatch):
+    """A client whose /version cannot be read (too slow on a busy computer, or no
+    version in its answer) is started all the same, with a word in the log: unknown
+    is not old (kit run 41180196907 refused a FreeRDP 3 client that way)."""
+    from freerdp_tk import app
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    monkeypatch.setenv("FAKE_VERSION", "unknown")
+    ui = make_ui()
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    type_into(ui, entry_for(ui, ui.password), "s3cret!")
+    click(ui, button(ui, "Connect"))
+    pump(ui, fake_client.exists)
+    assert errors == [] and fake_client.exists()
+    assert "could not tell" in log_text(ui)
+
+
 def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     from freerdp_tk import app
     ui = make_ui()
