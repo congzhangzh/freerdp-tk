@@ -80,6 +80,16 @@ proxy:       socks5://127.0.0.1:%L
 
 The RDP server then only has to be reachable from the jump host, and the client still connects by its real name, so the certificate check is unchanged. ssh runs without a terminal, so it must log in with a key or an agent, and it must already know the jump host's key (connect once with `ssh` in a terminal).
 
+## Hotkeys
+
+The SDL client takes a few keys for itself: Right Shift plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize) and *D* (disconnect). So a capital D typed with the right Shift key ends the session. To move them to Right Alt + Right Shift, put this in `~/.config/freerdp/sdl-freerdp.json`, the client's own settings file:
+
+```json
+{ "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"] }
+```
+
+It holds for every session of that client on that account, also without freerdp-tk.
+
 ## Where things are kept
 
 | What | Where |

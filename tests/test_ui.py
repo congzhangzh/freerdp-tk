@@ -124,6 +124,7 @@ def test_auto_passes_over_an_old_client(make_ui, fake_client, monkeypatch, home)
     errors = []
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
     ui = make_ui()
+    ui.clients = [ui.clients[0], own]  # not a real client that the computer may have
     ui.vars["client"].set(app.AUTO)
     assert ui._resolve_client(app.AUTO) != own  # the preview starts no program to learn it
     ui._ask_versions()
@@ -148,6 +149,7 @@ def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
     monkeypatch.setenv("FAKE_VERSION", "2.11.7")
     ui = make_ui()
+    ui.clients = ui.clients[:1]  # the fake one alone: auto would pass over it to a real one
     type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
     type_into(ui, entry_for(ui, ui.password), "s3cret!")
     click(ui, button(ui, "Connect"))
