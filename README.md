@@ -1,12 +1,12 @@
 # freerdp-tk
 
-A small launcher window for the [FreeRDP](https://www.freerdp.com/) 3 SDL client.
-It runs on Linux, Windows and macOS and needs Python with its built-in Tkinter, plus the [keyring](https://pypi.org/project/keyring/) package, which installs with it.
+A small launcher window for the [FreeRDP](https://www.freerdp.com/) 3 SDL client, with the client inside.
+It runs on Linux, Windows and macOS: `uvx freerdp-tk` brings everything it needs, the client, Python with Tkinter and the [keyring](https://pypi.org/project/keyring/) package.
 
 ![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
 
 - **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
-- **Finds the client for you:** "(auto)" takes the first FreeRDP SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`) or in a local build tree. `PATH` order decides, whatever the names: a release that puts its own `bin/` first gets its own client, not the system's. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
+- **Finds the client for you:** "(auto)" takes the first FreeRDP 3 SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`), then in a local build tree, then the one that came with freerdp-tk. `PATH` order decides, whatever the names: a release that puts its own `bin/` first gets its own client, not the system's. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
 - **Form instead of flags:** display, monitors (*List…* asks the client which ones it sees, then you tick them), graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
 - **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
 - **Session log:** runs several sessions at once and shows each client's output.
@@ -18,7 +18,16 @@ uvx freerdp-tk               # run it once, without installing
 uv tool install freerdp-tk   # or install it: then just freerdp-tk (pipx install freerdp-tk works too)
 ```
 
-You also need FreeRDP 3 with its SDL client:
+That is all: the wheel for your platform carries the FreeRDP SDL client, one program of about 25 MB.
+
+| Platform | Client in the wheel |
+|----------|---------------------|
+| Linux x86_64, aarch64 | yes, with glibc 2.34 or newer (RHEL 9, Debian 12, Ubuntu 22.04, Fedora 35 and newer) and PulseAudio's `libpulse.so.0`, which every desktop has (else `sudo apt install libpulse0`) |
+| macOS 12 and newer, Apple Silicon and Intel | yes |
+| Windows 10 and 11, x86_64 and ARM64 | yes |
+| Anything else (musl, an older glibc, a BSD) | no: the same freerdp-tk without a client, see below |
+
+A client you installed yourself still comes first, as long as it is FreeRDP 3. To install one, or where no wheel has a client:
 
 | Platform | Client |
 |----------|--------|
@@ -26,6 +35,8 @@ You also need FreeRDP 3 with its SDL client:
 | Fedora | `sudo dnf install freerdp` |
 | macOS | `brew install freerdp` |
 | Windows | a FreeRDP 3 build containing `sdl-freerdp.exe`, on your `PATH` |
+
+**About that client:** it is a portable build from [rdp-release-kit](https://github.com/congzhangzh/rdp-release-kit), unofficial and a preview: FreeRDP's master plus open pull requests, with AV1, AV2 and Opus. `client.lock` pins the release and its SHA-256. It decodes H.264 through the system on macOS (VideoToolbox) and Windows (Media Foundation). On Linux it has no H.264, since it carries neither OpenH264 nor FFmpeg: leave the codec on its default, pick *AV1* or *progressive*, or use a client of your own. `freerdp_tk/client/` in the installed package holds its `MANIFEST` (what it was built from) and `licenses/`, one folder per component.
 
 **Tk:** the window needs a Python with Tk. The Pythons that `uv` installs include it; a Linux system Python often does not (`sudo apt install python3-tk`, `sudo dnf install python3-tkinter`). `uv` takes the system Python when there is one, so:
 
@@ -109,7 +120,13 @@ git tag 0.2.0          # the version, no prefix
 git push origin 0.2.0
 ```
 
-The workflow builds the package, checks that it installs on Linux, Windows and macOS, and then uploads it to PyPI.
+The workflow builds the package, adds the client to one wheel per platform (`scripts/bundle_client.py`), checks on a runner of each platform that the wheel installs and its client starts, and then uploads them all to PyPI, with the plain wheel and the sdist.
+
+To move to a newer client, pin a release of rdp-release-kit and commit `client.lock`:
+
+```bash
+python scripts/bundle_client.py --pin 20261106.3
+```
 
 ## License
 

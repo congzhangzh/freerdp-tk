@@ -50,6 +50,9 @@ OLD_AUTO = "(auto: prefer SDL)"  # what older versions saved for auto
 # are versioned, or sdl3-freerdp when it builds the SDL2 client beside it.
 CLIENT_NAMES = ["sdl3-freerdp3", "sdl3-freerdp", "sdl-freerdp3", "sdl-freerdp"]
 BUILD_GLOB = "client/SDL/SDL3/*freerdp*"
+# The wheels of most platforms carry a client (scripts/bundle_client.py); a
+# source checkout and the plain wheel have none.
+BUNDLED = Path(__file__).parent / "client" / f"sdl-freerdp{EXE}"
 GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV1:i444",
                "AV1:i420"]
 CERT_CHOICES = ["tofu", "ignore", "deny"]
@@ -92,14 +95,16 @@ def config_dir() -> Path:
 
 
 def find_clients() -> list[str]:
-    """SDL clients on PATH, then in local FreeRDP build trees.
+    """SDL clients on PATH, then in local FreeRDP build trees, then our own.
 
     PATH decides first: a client in an earlier folder comes before one in a
     later folder, whatever their names (a release puts its own bin/ first,
     and its sdl-freerdp must not lose to the system's sdl-freerdp3);
     CLIENT_NAMES orders the clients within one folder. Build trees are
     searched in ~/projects/FreeRDP and in every source tree listed in
-    $FREERDP_TK_TREES (separated like PATH).
+    $FREERDP_TK_TREES (separated like PATH). The client in the wheel comes
+    last: it is there so that freerdp-tk works alone, not to overrule a client
+    somebody installed.
     """
     found = []
     for folder in os.environ.get("PATH", os.defpath).split(os.pathsep):
@@ -113,6 +118,8 @@ def find_clients() -> list[str]:
             for path in sorted(build.glob(BUILD_GLOB)):
                 if path.is_file() and os.access(path, os.X_OK) and path.suffix in ("", EXE):
                     found.append(str(path))
+    if BUNDLED.is_file():
+        found.append(str(BUNDLED))
     # one program once, under the first path found: /bin and /usr/bin are one
     # folder on merged-/usr systems (Debian, Fedora), and both are on PATH
     unique: dict[str, str] = {}
@@ -130,6 +137,16 @@ def client_major_version(client: str) -> int:
         return 0
     match = re.search(r"version (\d+)\.", out)
     return int(match.group(1)) if match else 0
+
+
+def client_start_error(client: str) -> str:
+    """What a client says when it cannot even start, such as a library it lacks."""
+    try:
+        done = subprocess.run([client, "/version"], capture_output=True, text=True,
+                              errors="replace", timeout=5, **no_console())
+    except (OSError, subprocess.SubprocessError) as e:
+        return str(e)
+    return done.stderr.strip() if done.returncode else ""
 
 
 MONITOR_LINE = re.compile(  # "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors()
@@ -834,8 +851,20 @@ class App(ttk.Frame):
         """The program to run for a client choice; "" when there is none."""
         choice = choice.strip()
         if choice in ("", AUTO):
-            return self.clients[0] if self.clients else ""
+            usable = [c for c in self.clients if self.versions.get(c, 3) >= 3]
+            return next(iter(usable or self.clients), "")
         return choice if shutil.which(choice) or Path(choice).is_file() else ""
+
+    def _ask_versions(self) -> None:
+        """Auto takes the first client that is FreeRDP 3: a FreeRDP 2 client on
+        PATH must not hide one further down, such as the one in the wheel. Only
+        before connecting: _resolve_client runs on every key press, for the
+        command preview, and must not start programs."""
+        for client in self.clients:
+            if client not in self.versions:
+                self.versions[client] = client_major_version(client)
+            if self.versions[client] >= 3:
+                return
 
     def _command_text(self) -> str:
         v = self._form()
@@ -881,6 +910,8 @@ class App(ttk.Frame):
         its way, not that it started.
         """
         v = {**FIELDS, **v}
+        if v["client"].strip() in ("", AUTO):
+            self._ask_versions()
         client = self._resolve_client(v["client"])
         if not client:
             messagebox.showerror(APP, f"{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
@@ -890,7 +921,9 @@ class App(ttk.Frame):
         if client not in self.versions:
             self.versions[client] = client_major_version(client)
         if self.versions[client] < 3:
-            messagebox.showerror(APP, f"{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
+            error = client_start_error(client)
+            messagebox.showerror(APP, f"{name}: {client} did not start:\n{error}" if error else
+                                      f"{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
                                       "passes the password on standard input "
                                       "(/args-from:stdin), which needs FreeRDP 3.")
             return False

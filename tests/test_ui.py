@@ -2,6 +2,7 @@
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -100,6 +101,45 @@ def test_one_program_is_listed_once(home, monkeypatch):
     (home / "bin").symlink_to(home / "usr" / "bin")
     monkeypatch.setenv("PATH", os.pathsep.join([str(home / "usr" / "bin"), str(home / "bin")]))
     assert app.find_clients() == [real]
+
+
+def test_the_client_in_the_wheel_comes_last(home, monkeypatch):
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    monkeypatch.setattr(app, "BUNDLED", Path(own))
+    monkeypatch.setenv("PATH", str(home / "bin"))
+    assert app.find_clients() == [own]  # alone, it is what auto takes
+    installed = program(home / "bin" / "sdl-freerdp3")
+    found = [os.path.normcase(c) for c in app.find_clients()]
+    assert found == [os.path.normcase(installed), os.path.normcase(own)]
+
+
+def test_auto_passes_over_an_old_client(make_ui, fake_client, monkeypatch, home):
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    monkeypatch.setattr(app, "BUNDLED", Path(own))
+    monkeypatch.setenv("FAKE_VERSION", "2.11.7")
+    real = app.client_major_version
+    monkeypatch.setattr(app, "client_major_version", lambda c: 3 if c == own else real(c))
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    ui.vars["client"].set(app.AUTO)
+    assert ui._resolve_client(app.AUTO) != own  # the preview starts no program to learn it
+    ui._ask_versions()
+    assert ui._resolve_client(app.AUTO) == own
+    assert not errors
+
+
+def test_a_client_that_cannot_start_says_why(make_ui, fake_client, monkeypatch):
+    from freerdp_tk import app
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    monkeypatch.setattr(app, "client_major_version", lambda client: 0)
+    monkeypatch.setattr(app, "client_start_error", lambda client: "no libpulse.so.0")
+    ui = make_ui()
+    assert ui._launch("demo", {"host": "rdp.example.com"}, None) is False
+    assert len(errors) == 1 and "did not start" in errors[0] and "libpulse" in errors[0]
 
 
 def test_an_old_client_is_refused(make_ui, fake_client, monkeypatch):

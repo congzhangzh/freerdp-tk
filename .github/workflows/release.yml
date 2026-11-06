@@ -22,6 +22,9 @@ jobs:
           fetch-depth: 0  # the version is derived from the git tags
       - uses: astral-sh/setup-uv@v7
       - run: uv build
+      # The plain wheel stays, for what no wheel below fits (musl, an older glibc).
+      - name: Add one wheel per platform with the FreeRDP client inside
+        run: uv run --no-project python scripts/bundle_client.py dist/*-any.whl
       - uses: actions/upload-artifact@v6
         with:
           name: dist
@@ -32,7 +35,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # one runner for every wheel with a client
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm, macos-latest,
+             macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/download-artifact@v6
@@ -40,11 +45,20 @@ jobs:
           name: dist
           path: dist/
       - uses: astral-sh/setup-uv@v7
-      - name: Install the wheel and import it
+      # the client's one need from the host; a desktop has it, a runner may not
+      - if: runner.os == 'Linux'
+        run: sudo apt-get install -y -q libpulse0
+      # By version, from a folder of wheels: uv picks the wheel as it does from PyPI.
+      - name: Install the wheel of this platform and start its client
         shell: bash
         run: |
-          uv run --isolated --no-project --with dist/*.whl python -c \
-            "import freerdp_tk, freerdp_tk.app as a; print(freerdp_tk.__version__, a.find_clients())"
+          version=$(ls dist/*-any.whl | sed -E 's/.*freerdp_tk-([^-]+)-.*/\1/')
+          uv run --isolated --no-project --find-links dist --with "freerdp-tk==$version" python -c "
+          import freerdp_tk, freerdp_tk.app as a
+          print(freerdp_tk.__version__, a.find_clients())
+          assert str(a.BUNDLED) in a.find_clients(), 'this wheel has no client'
+          assert a.client_major_version(str(a.BUNDLED)) == 3, a.client_start_error(str(a.BUNDLED))
+          "
 
   publish:
     if: startsWith(github.ref, 'refs/tags/')
