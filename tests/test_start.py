@@ -115,6 +115,7 @@ def test_the_client_looks_under_dot_config_on_a_mac_too(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "IS_WIN", False)
     monkeypatch.setattr(app, "IS_MAC", True)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on the Windows runner
     monkeypatch.setenv("XDG_CONFIG_HOME", "")  # empty must not mean the current folder
     assert app.client_prefs_file() == tmp_path / ".config" / "freerdp" / "sdl-freerdp.json"
 
