@@ -53,6 +53,7 @@ BUILD_GLOB = "client/SDL/SDL3/*freerdp*"
 # The wheels of most platforms carry a client (scripts/bundle_client.py); a
 # source checkout and the plain wheel have none.
 BUNDLED = Path(__file__).parent / "client" / f"sdl-freerdp{EXE}"
+HOTKEY_PREFS = '{ "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"] }\n'
 GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV1:i444",
                "AV1:i420"]
 CERT_CHOICES = ["tofu", "ignore", "deny"]
@@ -92,6 +93,30 @@ def config_dir() -> Path:
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     return base / APP
+
+
+def client_prefs_file() -> Path:
+    """The SDL client's own settings file. It is not config_dir(): the client
+    keeps it under ~/.config on macOS too (winpr's XDG_CONFIG_HOME lookup)."""
+    if IS_WIN:
+        base = Path(os.environ.get("APPDATA", Path.home()))
+    else:
+        base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / "freerdp" / "sdl-freerdp.json"
+
+
+def move_client_hotkeys() -> None:
+    """Move the client's hotkeys off Right Shift alone, where a capital D typed
+    with that key ends the session. Only a file that does not exist is written
+    (mode "x"): one that does is the user's, whatever it holds. Failing to write
+    costs only the better default, so it stops nothing."""
+    path = client_prefs_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as f:
+            f.write(HOTKEY_PREFS)
+    except OSError:
+        pass
 
 
 def find_clients() -> list[str]:
@@ -1242,6 +1267,7 @@ class App(ttk.Frame):
 
 
 def main():
+    move_client_hotkeys()
     root = tk.Tk()
     root.title("FreeRDP")
     root.minsize(760, 640)

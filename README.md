@@ -82,13 +82,15 @@ The RDP server then only has to be reachable from the jump host, and the client 
 
 ## Hotkeys
 
-The SDL client takes a few keys for itself: Right Shift plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize) and *D* (disconnect). So a capital D typed with the right Shift key ends the session. To move them to Right Alt + Right Shift, put this in `~/.config/freerdp/sdl-freerdp.json`, the client's own settings file:
+The SDL client takes a few keys for itself: a modifier plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize) and *D* (disconnect). Its own default modifier is Right Shift, so a capital D typed with the right Shift key would end the session.
+
+So when freerdp-tk starts and the client's settings file does not exist yet, it writes one that moves the modifier to Right Alt + Right Shift (Right Option + Right Shift on a Mac):
 
 ```json
 { "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"] }
 ```
 
-It holds for every session of that client on that account, also without freerdp-tk.
+The file is `sdl-freerdp.json` in `~/.config/freerdp/` (Linux, macOS; `$XDG_CONFIG_HOME` if set) or `%APPDATA%\freerdp\` (Windows). It belongs to the client, so it holds for every session of an SDL client on that account, also without freerdp-tk. An existing file is never changed, so a file without `SDL_KeyModMask` keeps Right Shift. To change the keys, edit the file; deleting it only brings this one back. A user file also takes precedence over a system-wide `SDL_KeyModMask`.
 
 ## Where things are kept
 

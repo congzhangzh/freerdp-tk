@@ -1,10 +1,11 @@
 """Starting without Tk, and the glyphs for a Tk without Xft; no display needed."""
 
+import json
 import sys
 
 import pytest
 
-from freerdp_tk import start
+from freerdp_tk import app, start
 
 
 def test_uvx_starts_again_with_uvs_own_python(monkeypatch):
@@ -82,3 +83,43 @@ def test_glyphs(monkeypatch, system, fonts, plain):
     assert app.use_glyphs(FakeRoot(system, fonts)) is plain
     assert app.GLYPHS["dots"] == ("..." if plain else "…")
     assert app.GLYPHS["dot"] == ("*" if plain else "•")
+
+
+@pytest.fixture
+def prefs(tmp_path, monkeypatch):
+    """The client's settings file, in a home of its own."""
+    monkeypatch.setattr(app, "IS_WIN", False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    return tmp_path / "freerdp" / "sdl-freerdp.json"
+
+
+def test_the_first_start_moves_the_hotkeys_off_right_shift(prefs):
+    app.move_client_hotkeys()
+    assert json.loads(prefs.read_text()) == {"SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"]}
+
+
+def test_a_settings_file_that_exists_is_left_alone(prefs):
+    prefs.parent.mkdir()
+    prefs.write_text('{ "SDL_Fullscreen": true }')
+    app.move_client_hotkeys()
+    assert prefs.read_text() == '{ "SDL_Fullscreen": true }'
+
+
+def test_a_folder_that_cannot_be_written_stops_nothing(prefs):
+    prefs.parent.write_text("a file where the folder should be")
+    app.move_client_hotkeys()
+    assert prefs.parent.read_text() == "a file where the folder should be"
+
+
+def test_the_client_looks_under_dot_config_on_a_mac_too(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "IS_WIN", False)
+    monkeypatch.setattr(app, "IS_MAC", True)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")  # empty must not mean the current folder
+    assert app.client_prefs_file() == tmp_path / ".config" / "freerdp" / "sdl-freerdp.json"
+
+
+def test_windows_keeps_it_in_appdata(tmp_path, monkeypatch):
+    monkeypatch.setattr(app, "IS_WIN", True)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    assert app.client_prefs_file() == tmp_path / "freerdp" / "sdl-freerdp.json"
