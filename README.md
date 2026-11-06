@@ -60,7 +60,12 @@ On Linux, the Tk in uv's Pythons draws with the X core fonts (it is built withou
 
 The *Before / after* tab runs your own commands around a session:
 
-- **Before connecting:** runs to the end before the client starts; if it fails, the client does not start. Tick *Keep it running during the session* for a command that stays up beside the session, such as a tunnel. *Then wait until* `host:port` holds the client back until that port answers.
+- **Before connecting:** runs to the end before the client starts; if it fails, the client does not start. Tick *Keep it running during the session* for a command that stays up beside the session, such as a tunnel.
+- **Then wait until:** holds the client back until whatever the command started is ready, whether the command ran to its end or keeps running:
+  - *a port answers*, for `host:port`, such as `127.0.0.1:%L`.
+  - *the output shows*, for a regular expression matched against each line of the before command's output, such as `listening on .*%L`. A placeholder here stands for its literal value. Lines only arrive once the program writes them, and many programs hold back their output when it goes to a pipe.
+  - *seconds have passed*, for a fixed pause, when nothing can be checked.
+- **Give up after:** the seconds the whole before step may take, from the start of the command; then the client does not start, and a command that was to run to its end is stopped. Left empty, a port or output wait gives up after 30 seconds and the command itself has no limit. A fixed pause always lasts as long as asked.
 - **Stop it when the session ends:** ends the before command and everything it started, also if freerdp-tk itself crashes or is killed:
   - **Linux:** a small supervisor runs the command as a *child subreaper*, so even daemons that fork twice and leave the process group stay under it. Each is sent SIGTERM, then SIGKILL after 3 seconds.
   - **Windows:** the command runs in a job object that the system closes, and with it everything inside, when freerdp-tk lets go of it.

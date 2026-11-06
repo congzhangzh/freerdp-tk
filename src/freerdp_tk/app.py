@@ -13,13 +13,15 @@ clients are refused rather than given /p:<password> on the command line.
 
 Each connection can run a command before the client starts (to open an SSH
 tunnel, say) and one after it ends. The before command either runs to the end
-first, or keeps running beside the session, optionally until a port answers,
-and is then stopped together with everything it started (its process group,
-or its process tree on Windows).
+first, or keeps running beside the session; either way the client can then
+wait for a port, for a line of its output or for some seconds. The command is
+stopped together with everything it started (its process group, or its
+process tree on Windows).
 """
 
 import functools
 import json
+import math
 import os
 import queue
 import re
@@ -67,16 +69,20 @@ FANCY_GLYPHS = {"dots": "\u2026", "dot": "\u2022", "arrow": "\u2192"}
 PLAIN_GLYPHS = {"dots": "...", "dot": "*", "arrow": "->"}
 GLYPHS = dict(FANCY_GLYPHS)
 
+WAIT_PORT, WAIT_OUTPUT, WAIT_TIME = "a port answers", "the output shows", "seconds have passed"
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
     "multimon": False, "monitors": "", "gfx": "(default)", "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
-    "pre_wait": "", "post": "", "remember_password": True,
+    "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
+    "remember_password": True,
 }
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
-WAIT_TIMEOUT = 30  # seconds to wait for the before command's port
+WAIT_KINDS = (WAIT_PORT, WAIT_OUTPUT, WAIT_TIME)
+WAIT_TIMEOUT = 30  # seconds to wait for the before command when no limit is set
+MAX_SECONDS = 86400  # threading's timeouts overflow far above this; nobody waits a day
 # Client exit codes that mean "try another password" (SDL3 client,
 # sdl_utils.hpp): authentication failed, logon failure, wrong password, no
 # or missing credentials. Not a locked, expired or disabled account: another
@@ -212,6 +218,25 @@ def free_port() -> int:
 def expand(text: str, values: dict | None) -> str:
     """Fill in %h, %p, %u, %L and %%; any other % stays. No values: leave text as it is."""
     return re.sub(r"%([hpuL%])", lambda m: values[m.group(1)], text) if values else text
+
+
+def seconds(text: str, field: str) -> float:
+    """A positive number of seconds from a form field; ValueError names the field."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1
+    if not 0 < value <= MAX_SECONDS:  # also refuses nan and inf
+        raise ValueError(f"{field} '{text}': expected seconds")
+    return value
+
+
+def port_answers(host: str, port: int) -> bool:
+    try:
+        socket.create_connection((host, port), timeout=1).close()
+        return True
+    except OSError:
+        return False
 
 
 def spawn(command: str) -> subprocess.Popen:
@@ -549,6 +574,9 @@ class Session:
         self.client: subprocess.Popen | None = None
         self.helper: subprocess.Popen | None = None  # the before command
         self.stopping = False
+        self.wanted: re.Pattern | None = None  # the output line the wait looks for
+        self.seen = threading.Event()  # it came by
+        self.wait_began = 0.0
         self.code: int | None = None  # the client's exit code
         threading.Thread(target=self._run, daemon=True).start()
 
@@ -576,6 +604,8 @@ class Session:
     def _pump_helper(self, helper: Helper):
         for line in helper.lines():
             self.say("before: " + line)
+            if self.wanted and self.wanted.search(line):
+                self.seen.set()
 
     def _run(self):
         try:
@@ -590,7 +620,15 @@ class Session:
         command = expand(self.v["pre"].strip(), self.shell_values)
         if not command:
             return True
+        try:  # before anything starts: a typing mistake must not leave a tunnel behind
+            limit = self.v["pre_timeout"].strip()
+            limit = seconds(limit, "give up after") if limit else None
+            wait = self._wait_plan()
+        except ValueError as e:
+            self.say(f"before: {e}, not connecting")
+            return False
         self.say(f"before: {command}")
+        started = time.monotonic()
         try:
             self.helper = Helper(command, contain=self.v["pre_cleanup"])
         except OSError as e:
@@ -599,32 +637,60 @@ class Session:
         pump = threading.Thread(target=self._pump_helper, args=(self.helper,), daemon=True)
         pump.start()
         if not self.v["pre_async"]:
+            if not self.helper.exited.wait(limit):
+                self.say(f"before: still running after {limit:g} s, not connecting")
+                self.helper.stop()
+                return False
             code = self.helper.wait()
             pump.join(timeout=1)  # its last lines first, unless something it left holds the pipe
             if code:
                 self.say(f"before: failed with code {code}, not connecting")
-            return code == 0
-        wait = expand(self.v["pre_wait"].strip(), self.values)
-        return not wait or self._wait_for(wait)
+                return False
+        if not wait:
+            return True
+        what, ready = wait
+        if self.v["pre_wait_kind"] == WAIT_TIME:  # waiting is the point, nothing to give up on
+            return self._wait_for(what, ready, math.inf, 0)
+        if limit:  # all the before step may take, so what the command took counts
+            return self._wait_for(what, ready, started + limit, limit)
+        return self._wait_for(what, ready, time.monotonic() + WAIT_TIMEOUT, WAIT_TIMEOUT)
 
-    def _wait_for(self, address: str) -> bool:
+    def _wait_plan(self) -> tuple | None:
+        """What "Then wait until" asks for: (a name for it, a check), or None for nothing."""
+        text = self.v["pre_wait"].strip()
+        if not text:
+            return None
+        kind = self.v["pre_wait_kind"]
+        if kind == WAIT_OUTPUT:
+            escaped = {k: re.escape(x) for k, x in self.values.items()}
+            try:
+                self.wanted = re.compile(expand(text, escaped))
+            except re.error as e:
+                raise ValueError(f"wait for output '{text}': {e}") from None
+            return f"output '{text}'", self.seen.is_set
+        if kind == WAIT_TIME:
+            delay = seconds(text, "wait for")
+            return f"{delay:g} s", lambda: time.monotonic() - self.wait_began >= delay
+        address = expand(text, self.values)
         host, _, port = address.rpartition(":")
         if not host or not port.isdigit():
-            self.say(f"before: wait for '{address}': expected host:port")
-            return False
-        deadline = time.monotonic() + WAIT_TIMEOUT
-        while time.monotonic() < deadline and not self.stopping:
-            if not self.helper.running():
-                self.say(f"before: exited with code {self.helper.wait()} before "
-                         f"{address} answered, not connecting")
+            raise ValueError(f"wait for '{address}': expected host:port")
+        return address, functools.partial(port_answers, host.strip("[]"), int(port))
+
+    def _wait_for(self, what: str, ready, deadline: float, limit: float) -> bool:
+        self.say(f"before: waiting for {what}")
+        self.wait_began = time.monotonic()
+        while not self.stopping:
+            if self.v["pre_async"] and not self.helper.running():  # else it was meant to end
+                self.say(f"before: exited with code {self.helper.wait()} while waiting "
+                         f"for {what}, not connecting")
                 return False
-            try:
-                socket.create_connection((host.strip("[]"), int(port)), timeout=1).close()
+            if ready():
                 return True
-            except OSError:
-                time.sleep(0.2)
-        if not self.stopping:
-            self.say(f"before: {address} did not answer within {WAIT_TIMEOUT} s, not connecting")
+            if time.monotonic() >= deadline:
+                self.say(f"before: gave up waiting for {what} after {limit:g} s, not connecting")
+                return False
+            time.sleep(0.1)
         return False
 
     def _connect(self):
@@ -846,12 +912,22 @@ class App(ttk.Frame):
         self._check(f, 1, "Keep it running during the session (don't wait for it to end)",
                     "pre_async")
         self._check(f, 2, "Stop it, and all it started, when the session ends", "pre_cleanup")
-        self._row(f, 3, "Then wait until", ttk.Entry(f, textvariable=self.vars["pre_wait"]))
-        self._row(f, 4, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]))
-        self._row(f, 5, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]))
-        ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=6, column=1, sticky="w")
+        wait = ttk.Frame(f)
+        ttk.Combobox(wait, textvariable=self.vars["pre_wait_kind"], values=WAIT_KINDS,
+                     state="readonly", width=18).pack(side="left", padx=(0, 4))
+        ttk.Entry(wait, textvariable=self.vars["pre_wait"]).pack(
+            side="left", fill="x", expand=True)
+        self._row(f, 3, "Then wait until", wait)
+        limit = ttk.Frame(f)
+        ttk.Entry(limit, textvariable=self.vars["pre_timeout"], width=8).pack(side="left")
+        ttk.Label(limit, text=f"seconds (empty: {WAIT_TIMEOUT} for the wait, no limit on the "
+                  "command)", foreground="gray").pack(side="left", padx=(6, 0))
+        self._row(f, 4, "Give up after", limit)
+        self._row(f, 5, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]))
+        self._row(f, 6, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]))
+        ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=7, column=1, sticky="w")
         ttk.Button(f, text=f"Fill in: SSH tunnel{GLYPHS['dots']}", command=self._ssh_tunnel).grid(
-            row=7, column=1, sticky="w", pady=(6, 0))
+            row=8, column=1, sticky="w", pady=(6, 0))
         return f
 
     def _ssh_tunnel(self):
@@ -864,6 +940,7 @@ class App(ttk.Frame):
                              f"-o BatchMode=yes {jump.strip()}")
         self.vars["pre_async"].set(True)
         self.vars["pre_cleanup"].set(True)
+        self.vars["pre_wait_kind"].set(WAIT_PORT)
         self.vars["pre_wait"].set("127.0.0.1:%L")
         self.vars["proxy"].set("socks5://127.0.0.1:%L")
 
