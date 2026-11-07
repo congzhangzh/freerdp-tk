@@ -47,13 +47,14 @@ def main(out: str):
         style.theme_use("clam")
     ui = app.App(root)
     ui.saved = {name: {**app.FIELDS, **v} for name, v in DEMO.items()}
-    ui._refresh_saved(select=SELECTED)
+    ui.passwords[SELECTED] = "demo-password"
+    ui._refresh_saved()
+    ui.saved_list.selection_set(ui.visible.index(SELECTED))
     ui._on_select()
-    ui.password.set("demo-password")
     ui.running_list.insert("end", "lab-windows-server [4211]")
     ui.log.delete("1.0", "end")
     ui.log.insert("end", "\n".join(LOG) + "\n")
-    root.geometry("1000x600+0+0")
+    root.geometry("1000x640+0+0")
 
     def shoot():
         root.update()

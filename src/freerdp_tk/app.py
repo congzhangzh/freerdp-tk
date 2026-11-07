@@ -35,7 +35,7 @@ import threading
 import time
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, font, messagebox, simpledialog, ttk
 
 from freerdp_tk import credentials
 from freerdp_tk.supervise import EXIT_MARK, GRACE
@@ -61,6 +61,7 @@ GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV
 CERT_CHOICES = ["tofu", "ignore", "deny"]
 LOG_LEVELS = ["(default)", "OFF", "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
 HIDDEN = "********"
+CHANGED = "#c2410c"  # readable on the light and the dark themes
 # The few characters outside ASCII that the window shows. A Tk built
 # without Xft, as in the standalone Pythons that uv and the kit's releases
 # bring, draws with X core fonts, which often lack them and show something
@@ -552,6 +553,39 @@ def ask_password(root: tk.Tk, prompt: str, remember: bool,
     return answer[0] if answer else None
 
 
+def ask_unsaved(root: tk.Tk, question: str, changed: list[str]) -> str | None:
+    """Ask what to do with changes that are about to go: "save", "discard", None to stay."""
+    top = tk.Toplevel(root)
+    top.title(APP)
+    top.transient(root)
+    top.resizable(False, False)
+    frame = ttk.Frame(top, padding=12)
+    frame.pack(fill="both", expand=True)
+    ttk.Label(frame, text=question).pack(anchor="w")
+    ttk.Label(frame, text=f"Changed: {', '.join(changed)}", foreground="gray",
+              wraplength=360).pack(anchor="w", pady=(4, 0))
+    answer = []
+
+    def choose(choice: str):
+        answer.append(choice)
+        top.destroy()
+
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(10, 0))
+    ttk.Button(buttons, text="Cancel", command=top.destroy).pack(side="right")
+    ttk.Button(buttons, text="Discard", command=lambda: choose("discard")).pack(side="right",
+                                                                                padx=4)
+    save = ttk.Button(buttons, text="Save", command=lambda: choose("save"))
+    save.pack(side="right")
+    top.bind("<Return>", lambda _: choose("save"))
+    top.bind("<Escape>", lambda _: top.destroy())
+    save.focus_set()
+    top.wait_visibility()
+    top.grab_set()
+    top.wait_window()
+    return answer[0] if answer else None
+
+
 class Session:
     """One connection, run from start to end by its own thread.
 
@@ -743,11 +777,17 @@ class App(ttk.Frame):
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
         self.reading: set[str] = set()  # connections waiting for their saved password
+        self.current: str | None = None  # the saved connection in the form; None: a new one
+        self.marks: list[tuple[ttk.Widget, set[str]]] = []  # what lights up, for which fields
+        self.tab_titles: dict[ttk.Frame, str] = {}
 
         self._build()
+        self.original = self._values()  # what counts as changed, and what Reset goes back to
         self.pack(fill="both", expand=True)
         for var in (*self.vars.values(), self.password):
             var.trace_add("write", lambda *_: self._refresh_preview())
+        for var in (*self.vars.values(), self.password, self.name):
+            var.trace_add("write", lambda *_: self._refresh_changes())
         self.filter.trace_add("write", lambda *_: self._refresh_saved())
         self._refresh_saved()
         self._refresh_preview()
@@ -759,6 +799,11 @@ class App(ttk.Frame):
     # ---- layout -----------------------------------------------------------
 
     def _build(self):
+        # A change lights up the label, not the field: the native themes of Windows and
+        # macOS ignore a field's background. Tk drops the font along with this object.
+        self.bold = font.Font(root=self.root, font="TkDefaultFont", weight="bold")
+        for widget in ("TLabel", "TCheckbutton"):
+            ttk.Style(self.root).configure(f"Changed.{widget}", foreground=CHANGED, font=self.bold)
         upper = ttk.Frame(self)
         upper.pack(fill="x")
 
@@ -773,17 +818,29 @@ class App(ttk.Frame):
         self.saved_list.bind("<Double-Button-1>", lambda _: self._connect())
         row = ttk.Frame(side)
         row.pack(fill="x", pady=(4, 0))
-        ttk.Button(row, text="New", width=6, command=self._new).pack(side="left")
+        self.new_menu = tk.Menu(row, tearoff=0)
+        self.new_menu.add_command(label="Empty connection", command=self._new)
+        self.new_menu.add_command(label="Copy of this connection", command=self._copy)
+        ttk.Menubutton(row, text="New", width=5, menu=self.new_menu).pack(side="left")
         ttk.Button(row, text="Save", width=6, command=self._save).pack(side="left", padx=2)
         ttk.Button(row, text="Delete", width=6, command=self._delete).pack(side="left")
 
-        tabs = ttk.Notebook(upper)
-        tabs.pack(side="left", fill="both", expand=True)
-        tabs.add(self._connection_tab(tabs), text="Connection")
-        tabs.add(self._display_tab(tabs), text="Display")
-        tabs.add(self._devices_tab(tabs), text="Devices")
-        tabs.add(self._hooks_tab(tabs), text="Before / after")
-        tabs.add(self._advanced_tab(tabs), text="Advanced")
+        form = ttk.Frame(upper)
+        form.pack(side="left", fill="both", expand=True)
+        self.tabs = ttk.Notebook(form)
+        self.tabs.pack(fill="both", expand=True)
+        for title, tab in (("Connection", self._connection_tab), ("Display", self._display_tab),
+                           ("Devices", self._devices_tab), ("Before / after", self._hooks_tab),
+                           ("Advanced", self._advanced_tab)):
+            frame = tab(self.tabs)
+            self.tabs.add(frame, text=title)
+            self.tab_titles[frame] = title
+        row = ttk.Frame(form)
+        row.pack(fill="x", pady=(4, 0))
+        self.reset_button = ttk.Button(row, text="Reset", width=6, command=self._reset)
+        self.reset_button.pack(side="right")
+        self.change_note = ttk.Label(row, style="Changed.TLabel")
+        self.change_note.pack(side="left")
 
         ttk.Label(self, text="Command").pack(anchor="w", pady=(8, 0))
         self.preview = tk.Text(self, height=3, wrap="word", relief="flat",
@@ -823,44 +880,49 @@ class App(ttk.Frame):
         frame.columnconfigure(1, weight=1)
         return frame
 
-    def _row(self, frame, row, label, widget):
-        ttk.Label(frame, text=label).grid(row=row, column=0, sticky="w", pady=2, padx=(0, 8))
+    def _row(self, frame, row, label, widget, *keys):
+        text = ttk.Label(frame, text=label)
+        text.grid(row=row, column=0, sticky="w", pady=2, padx=(0, 8))
         widget.grid(row=row, column=1, sticky="ew", pady=2)
+        self.marks.append((text, set(keys)))
 
     def _check(self, frame, row, label, key):
-        ttk.Checkbutton(frame, text=label, variable=self.vars[key]).grid(
-            row=row, column=0, columnspan=2, sticky="w", pady=2)
+        box = ttk.Checkbutton(frame, text=label, variable=self.vars[key])
+        box.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
+        self.marks.append((box, {key}))
 
     def _connection_tab(self, parent):
         f = self._grid(parent)
-        self._row(f, 0, "Name", ttk.Entry(f, textvariable=self.name))
+        self._row(f, 0, "Name", ttk.Entry(f, textvariable=self.name), "name")
         client = ttk.Frame(f)
         ttk.Combobox(client, textvariable=self.vars["client"], values=[AUTO, *self.clients]).pack(
             side="left", fill="x", expand=True)
         ttk.Button(client, text=GLYPHS["dots"], width=3,
                    command=self._browse_client).pack(side="left")
-        self._row(f, 1, "Client", client)
+        self._row(f, 1, "Client", client, "client")
         host = ttk.Entry(f, textvariable=self.vars["host"])
-        self._row(f, 2, "Host", host)
+        self._row(f, 2, "Host", host, "host")
         host.focus_set()
-        self._row(f, 3, "Port", ttk.Entry(f, textvariable=self.vars["port"], width=8))
-        self._row(f, 4, "User", ttk.Entry(f, textvariable=self.vars["user"]))
-        self._row(f, 5, "Domain", ttk.Entry(f, textvariable=self.vars["domain"]))
+        self._row(f, 3, "Port", ttk.Entry(f, textvariable=self.vars["port"], width=8), "port")
+        self._row(f, 4, "User", ttk.Entry(f, textvariable=self.vars["user"]), "user")
+        self._row(f, 5, "Domain", ttk.Entry(f, textvariable=self.vars["domain"]), "domain")
         password = ttk.Frame(f)
         ttk.Entry(password, textvariable=self.password, show=GLYPHS["dot"]).pack(
             side="left", fill="x", expand=True)
         self.forget = ttk.Button(password, text="Forget", width=7, command=self._forget_password)
         self.forget.pack(side="left")
-        self._row(f, 6, "Password", password)
+        self._row(f, 6, "Password", password, "password")
         self.remember = ttk.Checkbutton(f, text="Remember it in the system keyring",
                                         variable=self.vars["remember_password"])
         self.remember.grid(row=7, column=1, sticky="w")
+        self.marks.append((self.remember, {"remember_password"}))
         self.no_keyring = ttk.Label(  # shown once the keyring turns out to be unusable
             f, text="No system keyring: passwords stay in memory (the log says why)",
             foreground="gray")
-        self._row(f, 9, "Gateway", ttk.Entry(f, textvariable=self.vars["gateway"]))
+        self._row(f, 9, "Gateway", ttk.Entry(f, textvariable=self.vars["gateway"]), "gateway")
         self._row(f, 10, "Certificate", ttk.Combobox(f, textvariable=self.vars["cert"],
-                                                     values=CERT_CHOICES, state="readonly"))
+                                                     values=CERT_CHOICES, state="readonly"),
+                  "cert")
         return f
 
     def _display_tab(self, parent):
@@ -868,7 +930,7 @@ class App(ttk.Frame):
         self._check(f, 0, "Full screen", "fullscreen")
         self._row(f, 1, "Window size", ttk.Combobox(
             f, textvariable=self.vars["size"],
-            values=["1280x720", "1600x900", "1920x1080", "2560x1440", "80%", "100%"]))
+            values=["1280x720", "1600x900", "1920x1080", "2560x1440", "80%", "100%"]), "size")
         self._check(f, 2, "Resize the remote desktop with the window", "dynamic")
         self._check(f, 3, "Use all monitors", "multimon")
         monitors = ttk.Frame(f)
@@ -877,11 +939,12 @@ class App(ttk.Frame):
         self.list_monitors = ttk.Button(monitors, text=f"List{GLYPHS['dots']}",
                                         command=self._pick_monitors)
         self.list_monitors.pack(side="left")
-        self._row(f, 4, "Monitors", monitors)
+        self._row(f, 4, "Monitors", monitors, "monitors")
         ttk.Label(f, text=f"Full screen on just these (IDs from List{GLYPHS['dots']}); "
                           "empty: as above", foreground="gray").grid(row=5, column=1, sticky="w")
         self._row(f, 6, "Graphics codec", ttk.Combobox(f, textvariable=self.vars["gfx"],
-                                                       values=GFX_CHOICES, state="readonly"))
+                                                       values=GFX_CHOICES, state="readonly"),
+                  "gfx")
         return f
 
     def _devices_tab(self, parent):
@@ -894,21 +957,22 @@ class App(ttk.Frame):
         ttk.Entry(drive, textvariable=self.vars["drive"]).pack(side="left", fill="x", expand=True)
         ttk.Button(drive, text=GLYPHS["dots"], width=3,
                    command=self._browse_drive).pack(side="left")
-        self._row(f, 4, "Share folder", drive)
+        self._row(f, 4, "Share folder", drive, "drive")
         return f
 
     def _advanced_tab(self, parent):
         f = self._grid(parent)
         self._row(f, 0, "Log level", ttk.Combobox(f, textvariable=self.vars["log_level"],
-                                                  values=LOG_LEVELS, state="readonly"))
-        self._row(f, 1, "Extra arguments", ttk.Entry(f, textvariable=self.vars["extra"]))
+                                                  values=LOG_LEVELS, state="readonly"),
+                  "log_level")
+        self._row(f, 1, "Extra arguments", ttk.Entry(f, textvariable=self.vars["extra"]), "extra")
         ttk.Label(f, text="e.g.  /scale:140 +auto-reconnect /kbd:layout:0x409",
                   foreground="gray").grid(row=2, column=1, sticky="w")
         return f
 
     def _hooks_tab(self, parent):
         f = self._grid(parent)
-        self._row(f, 0, "Before connecting", ttk.Entry(f, textvariable=self.vars["pre"]))
+        self._row(f, 0, "Before connecting", ttk.Entry(f, textvariable=self.vars["pre"]), "pre")
         self._check(f, 1, "Keep it running during the session (don't wait for it to end)",
                     "pre_async")
         self._check(f, 2, "Stop it, and all it started, when the session ends", "pre_cleanup")
@@ -917,14 +981,14 @@ class App(ttk.Frame):
                      state="readonly", width=18).pack(side="left", padx=(0, 4))
         ttk.Entry(wait, textvariable=self.vars["pre_wait"]).pack(
             side="left", fill="x", expand=True)
-        self._row(f, 3, "Then wait until", wait)
+        self._row(f, 3, "Then wait until", wait, "pre_wait_kind", "pre_wait")
         limit = ttk.Frame(f)
         ttk.Entry(limit, textvariable=self.vars["pre_timeout"], width=8).pack(side="left")
         ttk.Label(limit, text=f"seconds (empty: {WAIT_TIMEOUT} for the wait, no limit on the "
                   "command)", foreground="gray").pack(side="left", padx=(6, 0))
-        self._row(f, 4, "Give up after", limit)
-        self._row(f, 5, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]))
-        self._row(f, 6, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]))
+        self._row(f, 4, "Give up after", limit, "pre_timeout")
+        self._row(f, 5, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]), "proxy")
+        self._row(f, 6, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]), "post")
         ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=7, column=1, sticky="w")
         ttk.Button(f, text=f"Fill in: SSH tunnel{GLYPHS['dots']}", command=self._ssh_tunnel).grid(
             row=8, column=1, sticky="w", pady=(6, 0))
@@ -1003,6 +1067,9 @@ class App(ttk.Frame):
             if typed != self.passwords.get(name) and v["remember_password"]:
                 self._store_password(v, typed)  # a new one, typed into the form
             self.passwords[name] = typed
+            if name == self.current:  # kept now, as a Save would have kept it
+                self.original["password"] = typed
+                self._refresh_changes()
 
     def _launch(self, name: str, v: dict, password: str | None) -> bool:
         """Start one client; False when it did not start and the user was told why.
@@ -1139,6 +1206,8 @@ class App(ttk.Frame):
             self.log.see("end")
 
     def _quit(self):
+        if not self._may_leave():
+            return
         running = self.sessions
         if running and not messagebox.askyesno(
                 APP, f"{len(running)} session(s) still running. Close them and quit?"):
@@ -1167,15 +1236,20 @@ class App(ttk.Frame):
         if refresh:
             self._refresh_saved()
 
-    def _refresh_saved(self, select: str | None = None):
+    def _refresh_saved(self):
         needle = self.filter.get().strip().lower()
         self.visible = [n for n in sorted(self.saved, key=str.lower)
                         if needle in n.lower() or needle in self.saved[n].get("host", "").lower()]
         self.saved_list.delete(0, "end")
         for name in self.visible:
             self.saved_list.insert("end", name)
-        if select in self.visible:
-            self.saved_list.selection_set(self.visible.index(select))
+        self._select_current()
+        self._refresh_changes()
+
+    def _select_current(self):
+        self.saved_list.selection_clear(0, "end")
+        if self.current in self.visible:
+            self.saved_list.selection_set(self.visible.index(self.current))
         self._update_connect_label()
 
     def _selected_names(self) -> list[str]:
@@ -1185,44 +1259,111 @@ class App(ttk.Frame):
         count = len(self._selected_names())
         self.connect_button.configure(text=f"Connect {count}" if count > 1 else "Connect")
 
-    def _on_select(self):
-        names = self._selected_names()
-        self._update_connect_label()
-        if len(names) != 1:
-            return
-        name = names[0]
-        data = self.saved[name]
+    def _values(self) -> dict:
+        """The whole form: the password counts too, a Save would keep it."""
+        return {"name": self.name.get(), "password": self.password.get(), **self._form()}
+
+    def _changed(self) -> set[str]:
+        return {k for k, v in self._values().items() if v != self.original[k]}
+
+    def _refresh_changes(self):
+        """Light up what differs from the saved connection: the label of each field, the
+        tab it is on (it may be out of sight), the connection in the list, and a count."""
+        changed = self._changed()
+        lit = [widget for widget, keys in self.marks if keys & changed]
+        for widget, _ in self.marks:
+            style = f"Changed.{widget.winfo_class()}" if widget in lit else ""
+            if widget.cget("style") != style:
+                widget.configure(style=style)
+        for tab, title in self.tab_titles.items():
+            self.tabs.tab(tab, text=f"{title} *" if any(w.master is tab for w in lit) else title)
+        for i, name in enumerate(self.visible):
+            dirty = changed and name == self.current
+            self.saved_list.itemconfigure(i, foreground=CHANGED if dirty else "",
+                                          selectbackground=CHANGED if dirty else "",
+                                          selectforeground="white" if dirty else "")
+        if changed:
+            note = f"{len(changed)} unsaved change{'s' if len(changed) > 1 else ''}"
+        else:
+            note = "Not saved yet" if self.current is None and self.name.get() else ""
+        self.change_note.configure(text=note)
+        self.reset_button.state(["!disabled" if changed else "disabled"])
+
+    def _may_leave(self) -> bool:
+        """Whether the form may stop showing this connection; asks when that loses changes."""
+        changed = self._changed()
+        if not changed:
+            return True
+        labels = [widget.cget("text") for widget, keys in self.marks if keys & changed]
+        answer = ask_unsaved(self.root, f"Save the changes to {self.current}?" if self.current
+                             else "Save this new connection?", labels)
+        return self._save() if answer == "save" else answer == "discard"
+
+    def _fill(self, name: str, data: dict, password: str):
+        """Put a connection in the form; it is what the form now counts changes from."""
         self.name.set(name)
         for key, default in FIELDS.items():
             self.vars[key].set(data.get(key, default))
-        self.password.set(self.passwords.get(name, ""))
+        self.password.set(password)
+        self.original = self._values()
+        self._refresh_changes()
+
+    def _on_select(self):
+        names = self._selected_names()
+        self._update_connect_label()
+        if len(names) != 1 or names[0] == self.current:
+            return  # the one in the form: clicking it again must not undo the edits
+        if self._may_leave():
+            self.current = names[0]
+            self._fill(self.current, self.saved[self.current],
+                       self.passwords.get(self.current, ""))
+        self._select_current()  # the one that stayed, after Cancel
 
     def _new(self):
-        self.saved_list.selection_clear(0, "end")
-        self.name.set("")
-        for key, default in FIELDS.items():
-            self.vars[key].set(default)
-        self.password.set("")
-        self._update_connect_label()
+        if self._may_leave():
+            self.current = None
+            self._fill("", {}, "")
+            self._select_current()
 
-    def _save(self):
+    def _copy(self):
+        """A new connection from the form as it stands. Nothing is lost, so nothing is asked:
+        changes go along, the connection they came from stays as saved, and the changes
+        still show, against that connection."""
+        base = self.name.get().strip() or self.vars["host"].get().strip()
+        if not base:
+            return
+        name, n = f"{base} copy", 1
+        while name in self.saved:
+            n += 1
+            name = f"{base} copy {n}"
+        self.current = None
+        self.original["name"] = name
+        self.name.set(name)
+        self._select_current()
+
+    def _reset(self):
+        self._fill(self.original["name"], self.original, self.original["password"])
+
+    def _save(self) -> bool:
         name = self.name.get().strip() or self.vars["host"].get().strip()
         if not name:
             messagebox.showerror(APP, "Enter a name or a host first.")
-            return
+            return False
         old, v = self.saved.get(name), self._form()
         self.saved[name] = v
+        self.current = name
         self.name.set(name)
         if self.password.get():
             self.passwords[name] = self.password.get()
+        self.original = self._values()
         self._write_saved()
-        self._refresh_saved(select=name)
         if old and (credentials.key(old) != credentials.key(v) or not v["remember_password"]):
             self._release_password(old)  # it logs in elsewhere now, or is not to be kept
         password = self.passwords.get(name)
         if v["remember_password"] and password:
             self._store_password(v, password)
         self._log(f"saved '{name}' to {self.store}")
+        return True
 
     def _delete(self):
         names = self._selected_names()
@@ -1230,6 +1371,9 @@ class App(ttk.Frame):
             gone = [self.saved.pop(name) for name in names if name in self.saved]
             for name in names:
                 self.passwords.pop(name, None)
+            if self.current in names:  # gone: the form must not look like it is still saved
+                self.current = None
+                self._fill("", {}, "")
             self._write_saved()
             for v in gone:
                 self._release_password(v)
@@ -1286,6 +1430,7 @@ class App(ttk.Frame):
         if not credentials.key(v):
             messagebox.showerror(APP, "Enter the host and the user whose password to forget.")
             return
+        self.original["password"] = ""
         self.password.set("")
         self.passwords.pop(self.name.get().strip() or v["host"].strip(), None)
         self._forget(v, lambda: self._log(f"forgot the saved password of {credentials.key(v)[1]} "
@@ -1293,6 +1438,8 @@ class App(ttk.Frame):
 
     def _set_remember(self, name: str, remember: bool):
         """Keep the remember box of a connection as the password dialog left it."""
+        if name == self.current:
+            self.original["remember_password"] = remember
         if self.name.get().strip() == name:
             self.vars["remember_password"].set(remember)
         saved = self.saved.get(name)
