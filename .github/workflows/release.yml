@@ -1,13 +1,12 @@
-# Builds on every push and pull request. Pushing a release tag, the version
-# with no prefix (0.2.0; v0.1.x before 2026-10-25), also publishes that
-# version to PyPI through trusted publishing (no API token).
+# Runs only for a release tag, yyyymmdd.index (20261107.1, the index counting that
+# day's releases from 1): builds the wheels, tries them on every platform and
+# publishes them to PyPI through trusted publishing (no API token). The tests run on
+# every push to main, in test.yml.
 name: release
 
 on:
   push:
-    branches: [main]
-    tags: ["[0-9]*", "v*"]
-  pull_request:
+    tags: ["[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[0-9]+"]
 
 env:
   # uv's own Python builds include Tk; the runners' system Pythons may not.

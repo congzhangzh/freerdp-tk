@@ -134,9 +134,11 @@ One-time setup:
 Each release after that:
 
 ```bash
-git tag 0.2.0          # the version, no prefix
-git push origin 0.2.0
+git tag 20261107.1          # yyyymmdd.index, the index counting that day's releases from 1
+git push origin 20261107.1
 ```
+
+Only a tag of this form starts the release; the tests run on every push to `main`. A tag whose release failed stays as it is: fix it and tag the next index.
 
 The workflow builds the package, adds the client to one wheel per platform (`scripts/bundle_client.py`), checks on a runner of each platform that the wheel installs and its client starts, and then uploads them all to PyPI, with the plain wheel and the sdist.
 
