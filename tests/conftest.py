@@ -65,6 +65,16 @@ def memory_keyring(monkeypatch):
     return store
 
 
+@pytest.fixture(autouse=True)
+def english(monkeypatch):
+    """The window in English, whatever the language of the machine running the tests."""
+    from freerdp_tk import i18n
+    monkeypatch.setenv("FREERDP_TK_LANG", "en")
+    i18n.use("en")
+    yield
+    i18n.use("en")
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     """A throwaway home and config dir: no real profiles, no ~/projects/FreeRDP builds."""

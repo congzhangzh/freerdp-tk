@@ -37,7 +37,8 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, font, messagebox, simpledialog, ttk
 
-from freerdp_tk import credentials
+from freerdp_tk import credentials, i18n
+from freerdp_tk.i18n import tr
 from freerdp_tk.supervise import EXIT_MARK, GRACE
 
 APP = "freerdp-tk"
@@ -82,6 +83,8 @@ FIELDS = {  # name -> default; everything a saved connection stores
 }
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_KINDS = (WAIT_PORT, WAIT_OUTPUT, WAIT_TIME)
+# Choices that the lists show translated; the form and the saved file keep them in English.
+SHOWN_CHOICES = (AUTO, *WAIT_KINDS, "(default)", "off")
 WAIT_TIMEOUT = 30  # seconds to wait for the before command when no limit is set
 MAX_SECONDS = 86400  # threading's timeouts overflow far above this; nobody waits a day
 # Client exit codes that mean "try another password" (SDL3 client,
@@ -474,13 +477,14 @@ def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str]) -> list[
     top.resizable(False, False)
     frame = ttk.Frame(top, padding=12)
     frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text="Full screen on these monitors:").pack(anchor="w", pady=(0, 4))
+    ttk.Label(frame, text=tr("Full screen on these monitors:")).pack(anchor="w", pady=(0, 4))
     ticks = []
     for m in monitors:
         var = tk.BooleanVar(value=m["id"] in chosen)
         ticks.append((m["id"], var))
-        text = f"{m['id']}: {m['name'] or 'monitor'}, {m['size']} at {m['at']}"
-        ttk.Checkbutton(frame, text=text + (" (primary)" if m["primary"] else ""),
+        text = tr("{id}: {name}, {size} at {at}", id=m["id"], name=m["name"] or tr("monitor"),
+                  size=m["size"], at=m["at"])
+        ttk.Checkbutton(frame, text=tr("{text} (primary)", text=text) if m["primary"] else text,
                         variable=var).pack(anchor="w")
     answer = []
 
@@ -490,8 +494,8 @@ def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str]) -> list[
 
     buttons = ttk.Frame(frame)
     buttons.pack(fill="x", pady=(10, 0))
-    ttk.Button(buttons, text="Cancel", command=top.destroy).pack(side="right")
-    ttk.Button(buttons, text="OK", command=ok).pack(side="right", padx=4)
+    ttk.Button(buttons, text=tr("Cancel"), command=top.destroy).pack(side="right")
+    ttk.Button(buttons, text=tr("OK"), command=ok).pack(side="right", padx=4)
     top.bind("<Return>", ok)
     top.bind("<Escape>", lambda _: top.destroy())
     top.wait_visibility()
@@ -530,7 +534,7 @@ def ask_password(root: tk.Tk, prompt: str, remember: bool,
     ttk.Label(frame, text=prompt).pack(anchor="w")
     entry = ttk.Entry(frame, textvariable=password, show=GLYPHS["dot"], width=36)
     entry.pack(fill="x", pady=(4, 6))
-    box = ttk.Checkbutton(frame, text="Save it in the system keyring", variable=keep)
+    box = ttk.Checkbutton(frame, text=tr("Save it in the system keyring"), variable=keep)
     box.pack(anchor="w")
     if problem:
         box.state(["disabled"])
@@ -542,8 +546,8 @@ def ask_password(root: tk.Tk, prompt: str, remember: bool,
 
     buttons = ttk.Frame(frame)
     buttons.pack(fill="x", pady=(10, 0))
-    ttk.Button(buttons, text="Cancel", command=top.destroy).pack(side="right")
-    ttk.Button(buttons, text="OK", command=ok).pack(side="right", padx=4)
+    ttk.Button(buttons, text=tr("Cancel"), command=top.destroy).pack(side="right")
+    ttk.Button(buttons, text=tr("OK"), command=ok).pack(side="right", padx=4)
     top.bind("<Return>", ok)
     top.bind("<Escape>", lambda _: top.destroy())
     entry.focus_set()
@@ -562,7 +566,7 @@ def ask_unsaved(root: tk.Tk, question: str, changed: list[str]) -> str | None:
     frame = ttk.Frame(top, padding=12)
     frame.pack(fill="both", expand=True)
     ttk.Label(frame, text=question).pack(anchor="w")
-    ttk.Label(frame, text=f"Changed: {', '.join(changed)}", foreground="gray",
+    ttk.Label(frame, text=tr("Changed: {fields}", fields=", ".join(changed)), foreground="gray",
               wraplength=360).pack(anchor="w", pady=(4, 0))
     answer = []
 
@@ -572,10 +576,10 @@ def ask_unsaved(root: tk.Tk, question: str, changed: list[str]) -> str | None:
 
     buttons = ttk.Frame(frame)
     buttons.pack(fill="x", pady=(10, 0))
-    ttk.Button(buttons, text="Cancel", command=top.destroy).pack(side="right")
-    ttk.Button(buttons, text="Discard", command=lambda: choose("discard")).pack(side="right",
-                                                                                padx=4)
-    save = ttk.Button(buttons, text="Save", command=lambda: choose("save"))
+    ttk.Button(buttons, text=tr("Cancel"), command=top.destroy).pack(side="right")
+    ttk.Button(buttons, text=tr("Discard"), command=lambda: choose("discard")).pack(side="right",
+                                                                                    padx=4)
+    save = ttk.Button(buttons, text=tr("Save"), command=lambda: choose("save"))
     save.pack(side="right")
     top.bind("<Return>", lambda _: choose("save"))
     top.bind("<Escape>", lambda _: top.destroy())
@@ -761,7 +765,15 @@ class App(ttk.Frame):
     def __init__(self, root: tk.Tk):
         super().__init__(root, padding=8)
         self.root = root
-        use_glyphs(root)
+        core_fonts = use_glyphs(root)
+        self.settings_file = config_dir() / "settings.json"
+        self.settings = self._load_settings()
+        code, language_note = i18n.choose(self.settings.get("language", i18n.AUTO), core_fonts)
+        i18n.use(code)
+        try:  # the buttons of Tk's own dialogs on X11, where Tk has words for them
+            root.tk.call("::msgcat::mclocale", code)
+        except tk.TclError:
+            pass
         self.vars = {k: tk.BooleanVar(value=v) if isinstance(v, bool) else tk.StringVar(value=v)
                      for k, v in FIELDS.items()}
         self.name = tk.StringVar()
@@ -792,6 +804,8 @@ class App(ttk.Frame):
         self._refresh_saved()
         self._refresh_preview()
         self._log(f"clients found: {', '.join(self.clients) or 'none'}")
+        if language_note:
+            self._log(language_note)
         self.keyring.run(credentials.problem, lambda problem, _: self._keyring_checked(problem))
         self.after(100, self._drain_output)
         root.protocol("WM_DELETE_WINDOW", self._quit)
@@ -809,7 +823,7 @@ class App(ttk.Frame):
 
         side = ttk.Frame(upper)
         side.pack(side="left", fill="y", padx=(0, 8))
-        ttk.Label(side, text="Saved connections").pack(anchor="w")
+        ttk.Label(side, text=tr("Saved connections")).pack(anchor="w")
         ttk.Entry(side, textvariable=self.filter).pack(fill="x", pady=(2, 4))
         self.saved_list = tk.Listbox(side, width=26, height=14, selectmode="extended",
                                      exportselection=False)
@@ -819,53 +833,56 @@ class App(ttk.Frame):
         row = ttk.Frame(side)
         row.pack(fill="x", pady=(4, 0))
         self.new_menu = tk.Menu(row, tearoff=0)
-        self.new_menu.add_command(label="Empty connection", command=self._new)
-        self.new_menu.add_command(label="Copy of this connection", command=self._copy)
-        ttk.Menubutton(row, text="New", width=5, menu=self.new_menu).pack(side="left")
-        ttk.Button(row, text="Save", width=6, command=self._save).pack(side="left", padx=2)
-        ttk.Button(row, text="Delete", width=6, command=self._delete).pack(side="left")
+        self.new_menu.add_command(label=tr("Empty connection"), command=self._new)
+        self.new_menu.add_command(label=tr("Copy of this connection"), command=self._copy)
+        ttk.Menubutton(row, text=tr("New"), width=-5, menu=self.new_menu).pack(side="left")
+        ttk.Button(row, text=tr("Save"), width=-6, command=self._save).pack(side="left", padx=2)
+        ttk.Button(row, text=tr("Delete"), width=-6, command=self._delete).pack(side="left")
 
         form = ttk.Frame(upper)
         form.pack(side="left", fill="both", expand=True)
         self.tabs = ttk.Notebook(form)
         self.tabs.pack(fill="both", expand=True)
-        for title, tab in (("Connection", self._connection_tab), ("Display", self._display_tab),
-                           ("Devices", self._devices_tab), ("Before / after", self._hooks_tab),
-                           ("Advanced", self._advanced_tab)):
+        for title, tab in ((tr("Connection"), self._connection_tab),
+                           (tr("Display"), self._display_tab),
+                           (tr("Devices"), self._devices_tab),
+                           (tr("Before / after"), self._hooks_tab),
+                           (tr("Advanced"), self._advanced_tab)):
             frame = tab(self.tabs)
             self.tabs.add(frame, text=title)
             self.tab_titles[frame] = title
         row = ttk.Frame(form)
         row.pack(fill="x", pady=(4, 0))
-        self.reset_button = ttk.Button(row, text="Reset", width=6, command=self._reset)
+        self.reset_button = ttk.Button(row, text=tr("Reset"), width=-6, command=self._reset)
         self.reset_button.pack(side="right")
         self.change_note = ttk.Label(row, style="Changed.TLabel")
         self.change_note.pack(side="left")
 
-        ttk.Label(self, text="Command").pack(anchor="w", pady=(8, 0))
+        ttk.Label(self, text=tr("Command")).pack(anchor="w", pady=(8, 0))
         self.preview = tk.Text(self, height=3, wrap="word", relief="flat",
                                background=self.root.cget("background"))
         self.preview.pack(fill="x")
 
         buttons = ttk.Frame(self)
         buttons.pack(fill="x", pady=6)
-        self.connect_button = ttk.Button(buttons, text="Connect", command=self._connect)
+        self.connect_button = ttk.Button(buttons, text=tr("Connect"), command=self._connect)
         self.connect_button.pack(side="left")
-        ttk.Button(buttons, text="Disconnect", command=self._disconnect).pack(side="left", padx=4)
-        ttk.Button(buttons, text="Copy command", command=self._copy_command).pack(side="left")
-        ttk.Button(buttons, text="Clear log",
+        ttk.Button(buttons, text=tr("Disconnect"), command=self._disconnect).pack(side="left", padx=4)
+        ttk.Button(buttons, text=tr("Copy command"), command=self._copy_command).pack(side="left")
+        ttk.Button(buttons, text=tr("Clear log"),
                    command=lambda: self.log.delete("1.0", "end")).pack(side="right")
+        self._language_button(buttons).pack(side="right", padx=4)
 
         panes = ttk.PanedWindow(self, orient="horizontal")
         panes.pack(fill="both", expand=True)
         left = ttk.Frame(panes)
-        ttk.Label(left, text="Running").pack(anchor="w")
+        ttk.Label(left, text=tr("Running")).pack(anchor="w")
         self.running_list = tk.Listbox(left, width=26, selectmode="extended",
                                        exportselection=False)
         self.running_list.pack(fill="both", expand=True)
         panes.add(left, weight=0)
         right = ttk.Frame(panes)
-        ttk.Label(right, text="Log").pack(anchor="w")
+        ttk.Label(right, text=tr("Log")).pack(anchor="w")
         self.log = tk.Text(right, height=10, wrap="none", font="TkFixedFont")
         scroll = ttk.Scrollbar(right, command=self.log.yview)
         self.log.configure(yscrollcommand=scroll.set)
@@ -891,113 +908,181 @@ class App(ttk.Frame):
         box.grid(row=row, column=0, columnspan=2, sticky="w", pady=2)
         self.marks.append((box, {key}))
 
+    def _choices(self, parent, key: str, choices: list[str], **options) -> ttk.Combobox:
+        """A list that shows its choices in the window's language, while the form keeps
+        them in English, as they are saved and compared. Anything else, a client's
+        path say, shows as it is. The two variables follow each other."""
+        var, shown = self.vars[key], tk.StringVar()
+        names = {c: tr(c) for c in choices if c in SHOWN_CHOICES}
+        back = {name: c for c, name in names.items()}
+
+        def show(*_):
+            text = names.get(var.get(), var.get())
+            if shown.get() != text:
+                shown.set(text)
+
+        def keep(*_):
+            value = back.get(shown.get(), shown.get())
+            if var.get() != value:
+                var.set(value)
+
+        var.trace_add("write", show)
+        shown.trace_add("write", keep)
+        show()
+        return ttk.Combobox(parent, textvariable=shown, values=[names.get(c, c) for c in choices],
+                            **options)
+
+    def _language_button(self, parent) -> ttk.Menubutton:
+        """The language of the window: the system's, or one chosen here, from the next start.
+        Each language is named in itself and in English, so a font without Chinese or
+        Japanese still leaves the way back readable."""
+        self.language = tk.StringVar(value=self.settings.get("language", i18n.AUTO))
+        menu = tk.Menu(parent, tearoff=0)
+        menu.add_radiobutton(label=tr("Same as the system"), value=i18n.AUTO,
+                             variable=self.language, command=self._choose_language)
+        for code, name in i18n.LANGUAGES.items():
+            menu.add_radiobutton(label=name, value=code, variable=self.language,
+                                 command=self._choose_language)
+        self.language_menu = menu
+        return ttk.Menubutton(parent, text=i18n.LANGUAGES[i18n.language], menu=menu)
+
+    def _choose_language(self):
+        choice = self.language.get()
+        if choice == self.settings.get("language", i18n.AUTO):
+            return
+        self.settings["language"] = choice
+        self._write_settings()
+        coming = choice if choice in i18n.LANGUAGES else i18n.system_language() or "en"
+        if coming != i18n.language:  # said in the language that is coming
+            messagebox.showinfo(APP, i18n.tr_in(
+                coming, "freerdp-tk shows this language the next time it starts."))
+
+    def _load_settings(self) -> dict:
+        """The window's own settings (the language), apart from the saved connections."""
+        try:
+            data = json.loads(self.settings_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_settings(self):
+        try:
+            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
+            self.settings_file.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
+        except OSError as e:
+            self._log(f"cannot save the settings: {e}")
+
     def _connection_tab(self, parent):
         f = self._grid(parent)
-        self._row(f, 0, "Name", ttk.Entry(f, textvariable=self.name), "name")
+        self._row(f, 0, tr("Name"), ttk.Entry(f, textvariable=self.name), "name")
         client = ttk.Frame(f)
-        ttk.Combobox(client, textvariable=self.vars["client"], values=[AUTO, *self.clients]).pack(
-            side="left", fill="x", expand=True)
+        self._choices(client, "client", [AUTO, *self.clients]).pack(side="left", fill="x",
+                                                                    expand=True)
         ttk.Button(client, text=GLYPHS["dots"], width=3,
                    command=self._browse_client).pack(side="left")
-        self._row(f, 1, "Client", client, "client")
+        self._row(f, 1, tr("Client"), client, "client")
         host = ttk.Entry(f, textvariable=self.vars["host"])
-        self._row(f, 2, "Host", host, "host")
+        self._row(f, 2, tr("Host"), host, "host")
         host.focus_set()
-        self._row(f, 3, "Port", ttk.Entry(f, textvariable=self.vars["port"], width=8), "port")
-        self._row(f, 4, "User", ttk.Entry(f, textvariable=self.vars["user"]), "user")
-        self._row(f, 5, "Domain", ttk.Entry(f, textvariable=self.vars["domain"]), "domain")
+        self._row(f, 3, tr("Port"), ttk.Entry(f, textvariable=self.vars["port"], width=8), "port")
+        self._row(f, 4, tr("User"), ttk.Entry(f, textvariable=self.vars["user"]), "user")
+        self._row(f, 5, tr("Domain"), ttk.Entry(f, textvariable=self.vars["domain"]), "domain")
         password = ttk.Frame(f)
         ttk.Entry(password, textvariable=self.password, show=GLYPHS["dot"]).pack(
             side="left", fill="x", expand=True)
-        self.forget = ttk.Button(password, text="Forget", width=7, command=self._forget_password)
+        self.forget = ttk.Button(password, text=tr("Forget"), width=-7, command=self._forget_password)
         self.forget.pack(side="left")
-        self._row(f, 6, "Password", password, "password")
-        self.remember = ttk.Checkbutton(f, text="Remember it in the system keyring",
+        self._row(f, 6, tr("Password"), password, "password")
+        self.remember = ttk.Checkbutton(f, text=tr("Remember it in the system keyring"),
                                         variable=self.vars["remember_password"])
         self.remember.grid(row=7, column=1, sticky="w")
         self.marks.append((self.remember, {"remember_password"}))
         self.no_keyring = ttk.Label(  # shown once the keyring turns out to be unusable
-            f, text="No system keyring: passwords stay in memory (the log says why)",
+            f, text=tr("No system keyring: passwords stay in memory (the log says why)"),
             foreground="gray")
-        self._row(f, 9, "Gateway", ttk.Entry(f, textvariable=self.vars["gateway"]), "gateway")
-        self._row(f, 10, "Certificate", ttk.Combobox(f, textvariable=self.vars["cert"],
-                                                     values=CERT_CHOICES, state="readonly"),
+        self._row(f, 9, tr("Gateway"), ttk.Entry(f, textvariable=self.vars["gateway"]), "gateway")
+        self._row(f, 10, tr("Certificate"), ttk.Combobox(f, textvariable=self.vars["cert"],
+                                                         values=CERT_CHOICES, state="readonly"),
                   "cert")
         return f
 
     def _display_tab(self, parent):
         f = self._grid(parent)
-        self._check(f, 0, "Full screen", "fullscreen")
-        self._row(f, 1, "Window size", ttk.Combobox(
+        self._check(f, 0, tr("Full screen"), "fullscreen")
+        self._row(f, 1, tr("Window size"), ttk.Combobox(
             f, textvariable=self.vars["size"],
             values=["1280x720", "1600x900", "1920x1080", "2560x1440", "80%", "100%"]), "size")
-        self._check(f, 2, "Resize the remote desktop with the window", "dynamic")
-        self._check(f, 3, "Use all monitors", "multimon")
+        self._check(f, 2, tr("Resize the remote desktop with the window"), "dynamic")
+        self._check(f, 3, tr("Use all monitors"), "multimon")
         monitors = ttk.Frame(f)
         ttk.Entry(monitors, textvariable=self.vars["monitors"]).pack(
             side="left", fill="x", expand=True)
-        self.list_monitors = ttk.Button(monitors, text=f"List{GLYPHS['dots']}",
+        self.list_monitors = ttk.Button(monitors, text=tr("List{dots}", dots=GLYPHS["dots"]),
                                         command=self._pick_monitors)
         self.list_monitors.pack(side="left")
-        self._row(f, 4, "Monitors", monitors, "monitors")
-        ttk.Label(f, text=f"Full screen on just these (IDs from List{GLYPHS['dots']}); "
-                          "empty: as above", foreground="gray").grid(row=5, column=1, sticky="w")
-        self._row(f, 6, "Graphics codec", ttk.Combobox(f, textvariable=self.vars["gfx"],
-                                                       values=GFX_CHOICES, state="readonly"),
+        self._row(f, 4, tr("Monitors"), monitors, "monitors")
+        ttk.Label(f, text=tr("Full screen on just these (IDs from List{dots}); empty: as above",
+                             dots=GLYPHS["dots"]),
+                  foreground="gray").grid(row=5, column=1, sticky="w")
+        self._row(f, 6, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
+                                                            state="readonly"),
                   "gfx")
         return f
 
     def _devices_tab(self, parent):
         f = self._grid(parent)
-        self._check(f, 0, "Clipboard", "clipboard")
-        self._check(f, 1, "Play remote sound here", "sound")
-        self._check(f, 2, "Microphone", "microphone")
-        self._check(f, 3, "Share home folder", "home_drive")
+        self._check(f, 0, tr("Clipboard"), "clipboard")
+        self._check(f, 1, tr("Play remote sound here"), "sound")
+        self._check(f, 2, tr("Microphone"), "microphone")
+        self._check(f, 3, tr("Share home folder"), "home_drive")
         drive = ttk.Frame(f)
         ttk.Entry(drive, textvariable=self.vars["drive"]).pack(side="left", fill="x", expand=True)
         ttk.Button(drive, text=GLYPHS["dots"], width=3,
                    command=self._browse_drive).pack(side="left")
-        self._row(f, 4, "Share folder", drive, "drive")
+        self._row(f, 4, tr("Share folder"), drive, "drive")
         return f
 
     def _advanced_tab(self, parent):
         f = self._grid(parent)
-        self._row(f, 0, "Log level", ttk.Combobox(f, textvariable=self.vars["log_level"],
-                                                  values=LOG_LEVELS, state="readonly"),
+        self._row(f, 0, tr("Log level"), self._choices(f, "log_level", LOG_LEVELS,
+                                                       state="readonly"),
                   "log_level")
-        self._row(f, 1, "Extra arguments", ttk.Entry(f, textvariable=self.vars["extra"]), "extra")
-        ttk.Label(f, text="e.g.  /scale:140 +auto-reconnect /kbd:layout:0x409",
+        self._row(f, 1, tr("Extra arguments"), ttk.Entry(f, textvariable=self.vars["extra"]), "extra")
+        ttk.Label(f, text=tr("e.g.  {example}", example="/scale:140 +auto-reconnect /kbd:layout:0x409"),
                   foreground="gray").grid(row=2, column=1, sticky="w")
         return f
 
     def _hooks_tab(self, parent):
         f = self._grid(parent)
-        self._row(f, 0, "Before connecting", ttk.Entry(f, textvariable=self.vars["pre"]), "pre")
-        self._check(f, 1, "Keep it running during the session (don't wait for it to end)",
+        self._row(f, 0, tr("Before connecting"), ttk.Entry(f, textvariable=self.vars["pre"]), "pre")
+        self._check(f, 1, tr("Keep it running during the session (don't wait for it to end)"),
                     "pre_async")
-        self._check(f, 2, "Stop it, and all it started, when the session ends", "pre_cleanup")
+        self._check(f, 2, tr("Stop it, and all it started, when the session ends"),
+                    "pre_cleanup")
         wait = ttk.Frame(f)
-        ttk.Combobox(wait, textvariable=self.vars["pre_wait_kind"], values=WAIT_KINDS,
-                     state="readonly", width=18).pack(side="left", padx=(0, 4))
+        self._choices(wait, "pre_wait_kind", WAIT_KINDS, state="readonly", width=18).pack(
+            side="left", padx=(0, 4))
         ttk.Entry(wait, textvariable=self.vars["pre_wait"]).pack(
             side="left", fill="x", expand=True)
-        self._row(f, 3, "Then wait until", wait, "pre_wait_kind", "pre_wait")
+        self._row(f, 3, tr("Then wait until"), wait, "pre_wait_kind", "pre_wait")
         limit = ttk.Frame(f)
         ttk.Entry(limit, textvariable=self.vars["pre_timeout"], width=8).pack(side="left")
-        ttk.Label(limit, text=f"seconds (empty: {WAIT_TIMEOUT} for the wait, no limit on the "
-                  "command)", foreground="gray").pack(side="left", padx=(6, 0))
-        self._row(f, 4, "Give up after", limit, "pre_timeout")
-        self._row(f, 5, "Client proxy", ttk.Entry(f, textvariable=self.vars["proxy"]), "proxy")
-        self._row(f, 6, "After disconnecting", ttk.Entry(f, textvariable=self.vars["post"]), "post")
-        ttk.Label(f, text=PLACEHOLDERS, foreground="gray").grid(row=7, column=1, sticky="w")
-        ttk.Button(f, text=f"Fill in: SSH tunnel{GLYPHS['dots']}", command=self._ssh_tunnel).grid(
-            row=8, column=1, sticky="w", pady=(6, 0))
+        ttk.Label(limit, text=tr("seconds (empty: {timeout} for the wait, no limit on the "
+                                 "command)", timeout=WAIT_TIMEOUT),
+                  foreground="gray").pack(side="left", padx=(6, 0))
+        self._row(f, 4, tr("Give up after"), limit, "pre_timeout")
+        self._row(f, 5, tr("Client proxy"), ttk.Entry(f, textvariable=self.vars["proxy"]), "proxy")
+        self._row(f, 6, tr("After disconnecting"), ttk.Entry(f, textvariable=self.vars["post"]), "post")
+        ttk.Label(f, text=tr(PLACEHOLDERS), foreground="gray").grid(row=7, column=1, sticky="w")
+        ttk.Button(f, text=tr("Fill in: SSH tunnel{dots}", dots=GLYPHS["dots"]),
+                   command=self._ssh_tunnel).grid(row=8, column=1, sticky="w", pady=(6, 0))
         return f
 
     def _ssh_tunnel(self):
         """The common case in one step: a SOCKS tunnel through an SSH jump host."""
         jump = simpledialog.askstring(
-            APP, "SSH jump host: user@host[:port], or a Host from ~/.ssh/config", parent=self.root)
+            APP, tr("SSH jump host: user@host[:port], or a Host from ~/.ssh/config"),
+            parent=self.root)
         if not jump or not jump.strip():
             return
         self.vars["pre"].set("ssh -N -D 127.0.0.1:%L -o ExitOnForwardFailure=yes "
@@ -1034,11 +1119,11 @@ class App(ttk.Frame):
 
     def _command_text(self) -> str:
         v = self._form()
-        client = self._resolve_client(v["client"]) or "<no client found>"
+        client = self._resolve_client(v["client"]) or tr("<no client found>")
         try:
             args = build_args(v, HIDDEN if self.password.get() else "")
         except ValueError as e:  # unbalanced quotes in the extra arguments
-            return f"error in extra arguments: {e}"
+            return tr("error in extra arguments: {error}", error=e)
         return join_command([client, *args])
 
     def _refresh_preview(self):
@@ -1083,21 +1168,23 @@ class App(ttk.Frame):
             self._ask_versions()
         client = self._resolve_client(v["client"])
         if not client:
-            messagebox.showerror(APP, f"{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
-                                      "with its SDL client, or choose one under Connection "
-                                      f"{GLYPHS['arrow']} Client.")
+            messagebox.showerror(APP, tr("{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
+                                         "with its SDL client, or choose one under Connection "
+                                         "{arrow} Client.", name=name, arrow=GLYPHS["arrow"]))
             return False
         if client not in self.versions:
             self.versions[client] = client_major_version(client)
         if self.versions[client] < 3:
             error = client_start_error(client)
-            messagebox.showerror(APP, f"{name}: {client} did not start:\n{error}" if error else
-                                      f"{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
-                                      "passes the password on standard input "
-                                      "(/args-from:stdin), which needs FreeRDP 3.")
+            messagebox.showerror(APP, tr("{name}: {client} did not start:\n{error}", name=name,
+                                         client=client, error=error) if error else
+                                 tr("{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
+                                    "passes the password on standard input "
+                                    "(/args-from:stdin), which needs FreeRDP 3.",
+                                    name=name, client=client))
             return False
         if not v["host"].strip():
-            messagebox.showerror(APP, "Enter a host to connect to.")
+            messagebox.showerror(APP, tr("Enter a host to connect to."))
             return False
         if password is not None or not v["user"].strip():
             return self._start(name, v, client, password)
@@ -1121,7 +1208,8 @@ class App(ttk.Frame):
         self._start(name, v, client, password)
 
     def _ask_and_start(self, name: str, v: dict, client: str) -> bool:
-        password = self._ask_password(name, v, f"Password for {v['user']} on {name}")
+        password = self._ask_password(name, v, tr("Password for {user} on {name}",
+                                                       user=v["user"], name=name))
         return password is not None and self._start(name, v, client, password)
 
     def _start(self, name: str, v: dict, client: str, password: str | None) -> bool:
@@ -1130,10 +1218,10 @@ class App(ttk.Frame):
         try:
             args = build_args(v, password or "", values)
         except ValueError as e:
-            messagebox.showerror(APP, f"{name}: extra arguments: {e}")
+            messagebox.showerror(APP, tr("{name}: extra arguments: {error}", name=name, error=e))
             return False
         if any("\n" in a or "\r" in a for a in args):
-            messagebox.showerror(APP, f"{name}: values must not contain line breaks.")
+            messagebox.showerror(APP, tr("{name}: values must not contain line breaks.", name=name))
             return False
 
         shown = build_args(v, HIDDEN if password else "", values)
@@ -1167,8 +1255,8 @@ class App(ttk.Frame):
         self._log(f"{name}: the server did not accept the password")
         password = self._ask_password(
             name, {**v, "remember_password": self._remembers(name, v)},
-            f"The server did not accept the password for {v['user']} on {name}.\n"
-            "Try another one:")
+            tr("The server did not accept the password for {user} on {name}.\nTry another one:",
+               user=v["user"], name=name))
         if password is not None:
             self._launch(name, v, password)
 
@@ -1210,7 +1298,7 @@ class App(ttk.Frame):
             return
         running = self.sessions
         if running and not messagebox.askyesno(
-                APP, f"{len(running)} session(s) still running. Close them and quit?"):
+                APP, tr("{count} session(s) still running. Close them and quit?", count=len(running))):
             return
         for s in running:  # their after commands do not run: the window is going away
             s.stop()
@@ -1257,7 +1345,8 @@ class App(ttk.Frame):
 
     def _update_connect_label(self):
         count = len(self._selected_names())
-        self.connect_button.configure(text=f"Connect {count}" if count > 1 else "Connect")
+        self.connect_button.configure(text=tr("Connect {count}", count=count) if count > 1
+                                      else tr("Connect"))
 
     def _values(self) -> dict:
         """The whole form: the password counts too, a Save would keep it."""
@@ -1283,9 +1372,10 @@ class App(ttk.Frame):
                                           selectbackground=CHANGED if dirty else "",
                                           selectforeground="white" if dirty else "")
         if changed:
-            note = f"{len(changed)} unsaved change{'s' if len(changed) > 1 else ''}"
+            note = (tr("{count} unsaved changes", count=len(changed)) if len(changed) > 1
+                    else tr("1 unsaved change"))
         else:
-            note = "Not saved yet" if self.current is None and self.name.get() else ""
+            note = tr("Not saved yet") if self.current is None and self.name.get() else ""
         self.change_note.configure(text=note)
         self.reset_button.state(["!disabled" if changed else "disabled"])
 
@@ -1295,8 +1385,8 @@ class App(ttk.Frame):
         if not changed:
             return True
         labels = [widget.cget("text") for widget, keys in self.marks if keys & changed]
-        answer = ask_unsaved(self.root, f"Save the changes to {self.current}?" if self.current
-                             else "Save this new connection?", labels)
+        answer = ask_unsaved(self.root, tr("Save the changes to {name}?", name=self.current)
+                             if self.current else tr("Save this new connection?"), labels)
         return self._save() if answer == "save" else answer == "discard"
 
     def _fill(self, name: str, data: dict, password: str):
@@ -1347,7 +1437,7 @@ class App(ttk.Frame):
     def _save(self) -> bool:
         name = self.name.get().strip() or self.vars["host"].get().strip()
         if not name:
-            messagebox.showerror(APP, "Enter a name or a host first.")
+            messagebox.showerror(APP, tr("Enter a name or a host first."))
             return False
         old, v = self.saved.get(name), self._form()
         self.saved[name] = v
@@ -1367,7 +1457,7 @@ class App(ttk.Frame):
 
     def _delete(self):
         names = self._selected_names()
-        if names and messagebox.askyesno(APP, f"Delete {', '.join(names)}?"):
+        if names and messagebox.askyesno(APP, tr("Delete {names}?", names=", ".join(names))):
             gone = [self.saved.pop(name) for name in names if name in self.saved]
             for name in names:
                 self.passwords.pop(name, None)
@@ -1396,7 +1486,7 @@ class App(ttk.Frame):
 
         def done(_, error):
             if error:
-                messagebox.showwarning(APP, f"The password was not saved.\n\n{error}")
+                messagebox.showwarning(APP, tr("The password was not saved.\n\n{error}", error=error))
             else:
                 self._log(f"saved the password of {k[1]} on {v['host'].strip()} "
                           "in the system keyring")
@@ -1428,7 +1518,7 @@ class App(ttk.Frame):
         """The Forget button: remove the saved password of the account in the form."""
         v = self._form()
         if not credentials.key(v):
-            messagebox.showerror(APP, "Enter the host and the user whose password to forget.")
+            messagebox.showerror(APP, tr("Enter the host and the user whose password to forget."))
             return
         self.original["password"] = ""
         self.password.set("")
@@ -1450,7 +1540,7 @@ class App(ttk.Frame):
     # ---- file pickers -----------------------------------------------------
 
     def _browse_client(self):
-        path = filedialog.askopenfilename(title="FreeRDP client")
+        path = filedialog.askopenfilename(title=tr("FreeRDP client"))
         if path:
             self.vars["client"].set(path)
 
@@ -1458,7 +1548,7 @@ class App(ttk.Frame):
         """List…: ask the client which monitors it sees, then tick the ones to use."""
         client = self._resolve_client(self.vars["client"].get())
         if not client:
-            messagebox.showerror(APP, "No FreeRDP SDL client found to list the monitors.")
+            messagebox.showerror(APP, tr("No FreeRDP SDL client found to list the monitors."))
             return
         result = []
         thread = threading.Thread(target=lambda: result.append(list_monitors(client)),
@@ -1474,8 +1564,8 @@ class App(ttk.Frame):
             monitors, output = result[0]
             if not monitors:
                 self._log(f"{client} /list:monitor: {output or 'no output'}")
-                messagebox.showerror(APP, "The client found no monitors (the log has its "
-                                          "output).")
+                messagebox.showerror(APP, tr("The client found no monitors (the log has its "
+                                             "output)."))
                 return
             chosen = re.findall(r"\d+", self.vars["monitors"].get())
             picked = pick_monitors(self.root, monitors, chosen)
@@ -1485,7 +1575,7 @@ class App(ttk.Frame):
         wait()
 
     def _browse_drive(self):
-        path = filedialog.askdirectory(title="Folder to share")
+        path = filedialog.askdirectory(title=tr("Folder to share"))
         if path:
             self.vars["drive"].set(path)
 

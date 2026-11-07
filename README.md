@@ -11,6 +11,7 @@ It runs on Linux, Windows and macOS: `uvx freerdp-tk` brings everything it needs
 - **Form instead of flags:** display, monitors (*List…* asks the client which ones it sees, then you tick them), graphics codec (including AV1), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
 - **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
 - **Session log:** runs several sessions at once and shows each client's output.
+- **Four languages:** English, 中文 (Chinese), 日本語 (Japanese) and Français (French). The window starts in the system's language; the button beside *Clear log* picks another one, from the next start, and `FREERDP_TK_LANG=fr` sets one for a single run. The log stays in English, so it can be searched and pasted into a bug report.
 
 ## Install
 
