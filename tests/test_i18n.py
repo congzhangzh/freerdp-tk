@@ -97,7 +97,7 @@ def combobox_with(ui, value):
 
 def test_the_window_in_chinese(make_ui, home, system):
     system("en_US.UTF-8")
-    settings = home / "cfg" / "freerdp-tk" / "settings.json"
+    settings = app.config_dir() / "settings.json"  # ~/Library/Application Support on macOS
     settings.parent.mkdir(parents=True)
     settings.write_text(json.dumps({"language": "zh"}))
     ui = make_ui()
@@ -134,7 +134,7 @@ def test_the_language_button(make_ui, home, monkeypatch):
     labels = [menu.entrycget(i, "label") for i in range(menu.index("end") + 1)]
     assert labels == ["Same as the system", *i18n.LANGUAGES.values()]
     menu.invoke(labels.index(i18n.LANGUAGES["fr"]))
-    settings = home / "cfg" / "freerdp-tk" / "settings.json"
+    settings = app.config_dir() / "settings.json"  # ~/Library/Application Support on macOS
     assert json.loads(settings.read_text()) == {"language": "fr"}
     assert told == ["freerdp-tk affichera cette langue à son prochain démarrage."]
     assert ui.connect_button.cget("text") == "Connect"  # from the next start
