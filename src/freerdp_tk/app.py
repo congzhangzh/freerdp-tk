@@ -219,6 +219,26 @@ def list_monitors(client: str) -> tuple[list[dict], str]:
     return parse_monitors(done.stdout), (done.stdout + done.stderr).strip()
 
 
+# FreeRDP's SDL client returns -1 (255) without a word when SDL cannot start its
+# video, such as on a desktop with no monitor: Wayland adds no display then
+# ("The video driver did not add any displays"), so SDL_Init fails.
+SILENT_EXIT = 255
+SILENT_EXIT_NOTE = ("the client ended without a word (code 255): FreeRDP's SDL client does "
+                    "that when it cannot open its video, such as on a desktop with no "
+                    "monitor right now")
+
+
+def no_monitor(screen: tuple[int, int], client: str) -> bool:
+    """True when the desktop has no monitor, so a client has nowhere to show the
+    remote desktop: a screen of 0x0 (as Xwayland reports while a GNOME session
+    has no monitor) that the client confirms with /list:monitor. Tk may keep the
+    size it saw at start, so 0x0 alone is only a hint and costs no process."""
+    if screen[0] > 0 and screen[1] > 0:
+        return False
+    monitors, _ = list_monitors(client)
+    return not monitors
+
+
 def no_console() -> dict:
     """Keep Windows from opening a console window for every child process."""
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
@@ -646,9 +666,13 @@ class Session:
             self.say("before: stopped")
             self.helper = None
 
-    def _pump(self, proc: subprocess.Popen, prefix: str = ""):
+    def _pump(self, proc: subprocess.Popen, prefix: str = "") -> int:
+        """Log what proc says, line by line; returns how many lines it said."""
+        said = 0
         for line in proc.stdout:
             self.say(prefix + line.rstrip("\n"))
+            said += 1
+        return said
 
     def _pump_helper(self, helper: Helper):
         for line in helper.lines():
@@ -754,9 +778,11 @@ class Session:
         self.client.stdin.close()  # nothing is left to answer prompts, so they fail fast
         for note in self.notes:
             self.say(note)
-        self._pump(self.client)
+        said = self._pump(self.client)
         self.code = self.client.wait()
         self.say(f"exited with code {self.code}")
+        if self.code == SILENT_EXIT and not said:
+            self.say(SILENT_EXIT_NOTE)
 
     def _after(self):
         command = expand(self.v["post"].strip(), self.shell_values)
@@ -1211,6 +1237,12 @@ class App(ttk.Frame):
             return False
         if not v["host"].strip():
             messagebox.showerror(APP, tr("Enter a host to connect to."))
+            return False
+        if no_monitor((self.winfo_screenwidth(), self.winfo_screenheight()), client):
+            messagebox.showerror(APP, tr("{name}: this desktop has no monitor right now (its "
+                                         "screen is 0x0), so the client has nowhere to show "
+                                         "the remote desktop. Connect again once a monitor "
+                                         "or a remote session is attached.", name=name))
             return False
         if password is not None or not v["user"].strip():
             return self._start(name, v, client, password)

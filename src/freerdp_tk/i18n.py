@@ -196,6 +196,11 @@ TEXTS = {
             "{name}：{client} 不是 FreeRDP 3 客户端。freerdp-tk 通过标准输入"
             "（/args-from:stdin）传递密码，这需要 FreeRDP 3。",
         "Enter a host to connect to.": "请输入要连接的主机。",
+        "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
+        "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
+        "session is attached.":
+            "{name}：这台桌面现在没有显示器（屏幕为 0x0），客户端无处显示远程桌面。"
+            "接上显示器或远程会话后再连接。",
         "Password for {user} on {name}": "{name} 上 {user} 的密码",
         "{name}: extra arguments: {error}": "{name}：额外参数：{error}",
         "{name}: values must not contain line breaks.": "{name}：值里不能有换行。",
@@ -317,6 +322,12 @@ TEXTS = {
             "{name}: {client} は FreeRDP 3 のクライアントではありません。freerdp-tk はパスワードを"
             "標準入力（/args-from:stdin）で渡すので、FreeRDP 3 が必要です。",
         "Enter a host to connect to.": "接続先のホストを入力してください。",
+        "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
+        "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
+        "session is attached.":
+            "{name}: このデスクトップには今モニターがありません（画面が 0x0）。"
+            "リモートデスクトップを表示する場所がないため、モニターかリモートセッションを"
+            "つないでから接続してください。",
         "Password for {user} on {name}": "{name} の {user} のパスワード",
         "{name}: extra arguments: {error}": "{name}: 追加の引数: {error}",
         "{name}: values must not contain line breaks.": "{name}: 値に改行を含めることはできません。",
@@ -438,6 +449,12 @@ TEXTS = {
             "{name} : {client} n'est pas un client FreeRDP 3. freerdp-tk passe le mot de passe "
             "sur l'entrée standard (/args-from:stdin), ce qui demande FreeRDP 3.",
         "Enter a host to connect to.": "Saisissez l'hôte auquel se connecter.",
+        "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
+        "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
+        "session is attached.":
+            "{name} : ce bureau n'a pas d'écran pour le moment (son écran fait 0x0), "
+            "le client n'a donc nulle part où afficher le bureau distant. Reconnectez-vous "
+            "une fois un écran branché ou une session distante ouverte.",
         "Password for {user} on {name}": "Mot de passe de {user} sur {name}",
         "{name}: extra arguments: {error}": "{name} : arguments supplémentaires : {error}",
         "{name}: values must not contain line breaks.":

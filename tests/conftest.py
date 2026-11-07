@@ -13,7 +13,10 @@ from keyring.errors import PasswordDeleteError
 # set), then records what it was given (argv and stdin) and exits with code 7,
 # so a test can check both ends. /list:monitor prints $FAKE_MONITORS.
 # Given the password in $FAKE_REJECT it exits with $FAKE_REJECT_CODE (default
-# 132, authentication failed) instead, like a server that turns it down.
+# 132, authentication failed) instead, like a server that turns it down. With
+# $FAKE_255=silent it exits with 255 and says nothing, as FreeRDP's SDL client
+# does when SDL cannot start its video (a desktop with no monitor); with
+# $FAKE_255=said, it says a line first.
 FAKE_CLIENT = """
 import json, os, sys
 if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS says otherwise
@@ -30,6 +33,10 @@ with open(os.environ["FAKE_RECORD"], "w") as f:
 reject = os.environ.get("FAKE_REJECT")
 if reject and "/p:" + reject in stdin.splitlines():
     sys.exit(int(os.environ.get("FAKE_REJECT_CODE", "132")))
+if os.environ.get("FAKE_255") == "said":
+    print("[ERROR][fake] - something else went wrong")
+if os.environ.get("FAKE_255"):
+    sys.exit(255)
 print("[INFO][fake] - connected")
 sys.exit(7)
 """
