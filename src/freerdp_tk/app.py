@@ -135,18 +135,20 @@ def move_client_hotkeys() -> None:
 
 
 def find_clients() -> list[str]:
-    """SDL clients on PATH, then in local FreeRDP build trees, then our own.
+    """The client in the wheel, then SDL clients on PATH, then in local FreeRDP
+    build trees: the order auto tries them in.
 
-    PATH decides first: a client in an earlier folder comes before one in a
-    later folder, whatever their names (a release puts its own bin/ first,
-    and its sdl-freerdp must not lose to the system's sdl-freerdp3);
-    CLIENT_NAMES orders the clients within one folder. Build trees are
-    searched in ~/projects/FreeRDP and in every source tree listed in
-    $FREERDP_TK_TREES (separated like PATH). The client in the wheel comes
-    last: it is there so that freerdp-tk works alone, not to overrule a client
-    somebody installed.
+    The wheel's client comes first: it is the one freerdp-tk was released and
+    tested with, and a distribution's client is often older (no AV1, say). A
+    client installed by hand stays one pick away, in the Client list. After it
+    PATH decides: a client in an earlier folder comes before one in a later
+    folder, whatever their names (the kit's pack puts its own bin/ first, and
+    its sdl-freerdp must not lose to the system's sdl-freerdp3); CLIENT_NAMES
+    orders the clients within one folder. Build trees are searched in
+    ~/projects/FreeRDP and in every source tree listed in $FREERDP_TK_TREES
+    (separated like PATH).
     """
-    found = []
+    found = [str(BUNDLED)] if BUNDLED.is_file() else []
     for folder in os.environ.get("PATH", os.defpath).split(os.pathsep):
         if folder:
             found += [p for p in (shutil.which(n, path=folder) for n in CLIENT_NAMES) if p]
@@ -158,8 +160,6 @@ def find_clients() -> list[str]:
             for path in sorted(build.glob(BUILD_GLOB)):
                 if path.is_file() and os.access(path, os.X_OK) and path.suffix in ("", EXE):
                     found.append(str(path))
-    if BUNDLED.is_file():
-        found.append(str(BUNDLED))
     # one program once, under the first path found: /bin and /usr/bin are one
     # folder on merged-/usr systems (Debian, Fedora), and both are on PATH
     unique: dict[str, str] = {}
@@ -829,6 +829,7 @@ class App(ttk.Frame):
         self.sessions: list[Session] = []
         self.output: queue.Queue = queue.Queue()
         self.versions: dict[str, int] = {}  # known versions only: an unknown one is asked again
+        self.cannot_start: dict[str, str] = {}  # auto passes over these; asked at each Connect
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1149,28 +1150,37 @@ class App(ttk.Frame):
         """The program to run for a client choice; "" when there is none."""
         choice = choice.strip()
         if choice in ("", AUTO):
-            usable = [c for c in self.clients if self.versions.get(c, 3) >= 3]
+            usable = [c for c in self.clients
+                      if self.versions.get(c, 3) >= 3 and c not in self.cannot_start]
             return next(iter(usable or self.clients), "")
         return choice if shutil.which(choice) or Path(choice).is_file() else ""
 
     def _ask_versions(self) -> dict[str, str]:
-        """Auto takes the first client that is FreeRDP 3: a FreeRDP 2 client on
-        PATH must not hide one further down, such as the one in the wheel. Only
-        before connecting: _resolve_client runs on every key press, for the
-        command preview, and must not start programs. Returns the client it could
-        not tell, with what it said if it did not start, so Connect asks it no
-        second time; auto takes that one, since unknown is not old."""
+        """Auto takes the first client that is FreeRDP 3 and starts: a FreeRDP 2
+        client must not hide one further down, nor one that cannot start (the
+        wheel's, say, on a system without a library it needs) an installed one.
+        Only before connecting: _resolve_client runs on every key press, for the
+        command preview, and must not start programs. Returns the clients it
+        could not tell, with what each said if it did not start, so Connect asks
+        none a second time; auto takes the first that started, since unknown is
+        not old. Those that did not start are asked again at the next Connect."""
+        self.cannot_start.clear()
+        unknown = {}
         for client in self.clients:
             if client in self.versions:
                 major = self.versions[client]
             else:
                 major, error = probe_client(client)
                 if major is None:
-                    return {client: error}
+                    unknown[client] = error
+                    if error:
+                        self.cannot_start[client] = error
+                        continue
+                    break
                 self.versions[client] = major
             if major >= 3:
                 break
-        return {}
+        return unknown
 
     def _command_text(self) -> str:
         v = self._form()

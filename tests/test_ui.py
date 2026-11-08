@@ -103,15 +103,51 @@ def test_one_program_is_listed_once(home, monkeypatch):
     assert app.find_clients() == [real]
 
 
-def test_the_client_in_the_wheel_comes_last(home, monkeypatch):
+def test_the_client_in_the_wheel_comes_first(home, monkeypatch):
+    """Auto tries the wheel's client before an installed one (a distribution's is
+    often older); the installed one stays in the list, one pick away."""
     from freerdp_tk import app
     own = program(home / "wheel" / "client" / "sdl-freerdp")
     monkeypatch.setattr(app, "BUNDLED", Path(own))
     monkeypatch.setenv("PATH", str(home / "bin"))
-    assert app.find_clients() == [own]  # alone, it is what auto takes
+    assert app.find_clients() == [own]
     installed = program(home / "bin" / "sdl-freerdp3")
     found = [os.path.normcase(c) for c in app.find_clients()]
-    assert found == [os.path.normcase(installed), os.path.normcase(own)]
+    assert found == [os.path.normcase(own), os.path.normcase(installed)]
+
+
+def test_auto_passes_over_a_wheel_client_that_cannot_start(make_ui, fake_client, monkeypatch,
+                                                          home):
+    """The wheel's client first must not block a working installed one, on a
+    system that lacks a library it needs."""
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    real = app.probe_client
+    monkeypatch.setattr(app, "probe_client",
+                        lambda c: (None, "no libpulse.so.0") if c == own else real(c))
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    ui.clients = [own, ui.clients[0]]  # the fake one stands for the installed client
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    type_into(ui, entry_for(ui, ui.password), "s3cret!")
+    click(ui, button(ui, "Connect"))
+    pump(ui, fake_client.exists)
+    assert errors == [] and fake_client.exists()
+    assert ui._resolve_client(app.AUTO) == ui.clients[1]  # the preview agrees
+
+
+def test_when_no_client_starts_connect_says_why(make_ui, fake_client, monkeypatch, home):
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    monkeypatch.setattr(app, "probe_client", lambda c: (None, "no libpulse.so.0"))
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    ui.clients = [own, ui.clients[0]]
+    assert ui._launch("demo", {"host": "rdp.example.com"}, "s3cret!") is False
+    assert len(errors) == 1 and "did not start" in errors[0] and own in errors[0]
+    assert not fake_client.exists()
 
 
 def test_auto_passes_over_an_old_client(make_ui, fake_client, monkeypatch, home):
@@ -124,7 +160,8 @@ def test_auto_passes_over_an_old_client(make_ui, fake_client, monkeypatch, home)
     errors = []
     monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
     ui = make_ui()
-    ui.clients = [ui.clients[0], own]  # not a real client that the computer may have
+    old = next(c for c in ui.clients if c != own)  # the fake one, not a real client
+    ui.clients = [old, own]  # an old client first, as when the wheel has none of its own
     ui.vars["client"].set(app.AUTO)
     assert ui._resolve_client(app.AUTO) != own  # the preview starts no program to learn it
     ui._ask_versions()

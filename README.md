@@ -29,7 +29,7 @@ That is all: the wheel for your platform carries the FreeRDP SDL client, one pro
 | Windows 10 and 11, x86_64 and ARM64 | yes |
 | Anything else (musl, an older glibc, a BSD) | no: the same freerdp-tk without a client, see below |
 
-A client you installed yourself still comes first, as long as it is FreeRDP 3. To install one, or where no wheel has a client:
+Auto takes the wheel's client first: it is the one this release was tested with, and a distribution's client is often older (no AV1). A client you installed yourself is one pick away under *Connection → Client*, and auto falls back to it when the wheel has no client, or its client is not FreeRDP 3 or does not start. To install one, or where no wheel has a client:
 
 | Platform | Client |
 |----------|--------|
