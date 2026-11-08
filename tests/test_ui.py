@@ -233,6 +233,27 @@ def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     assert make_ui().saved["lab"]["client"] == app.AUTO
 
 
+def test_a_choice_box_is_found_by_its_choices(make_ui):
+    """Outside drivers (the kit's demo, hook/drive.py) find a choice list by its
+    values: since 20261107.2 its Combobox shows a display variable of its own, not
+    the form variable, so finding it by the form variable fails. In English the
+    values are the choices themselves, and setting the box sets the form."""
+    from tkinter import ttk
+    from freerdp_tk import app
+    ui = make_ui()
+
+    def boxes(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ttk.Combobox):
+                yield child
+            yield from boxes(child)
+
+    found = [b for b in boxes(ui.root) if list(b.cget("values")) == app.GFX_CHOICES]
+    assert len(found) == 1
+    found[0].set("AV2:i444")
+    pump(ui, lambda: ui.vars["gfx"].get() == "AV2:i444")
+
+
 def test_list_and_pick_monitors(make_ui, fake_client, monkeypatch):
     from freerdp_tk import app
     shown = []
