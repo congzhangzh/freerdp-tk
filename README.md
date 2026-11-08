@@ -7,7 +7,7 @@ It runs on Linux, Windows and macOS: `uvx freerdp-tk` brings everything it needs
 
 - **Saved connections:** a list you can filter. Double-click one to connect, or select several and connect them all at once.
 - **Changes stay visible:** what you changed lights up, on its label, on its tab and in the list, until you save it. *Reset* goes back to what is saved, and moving on to another connection, or closing the window, asks whether to save or discard. *New* starts an empty connection or a copy of this one.
-- **Finds the client for you:** "(auto)" takes the first FreeRDP 3 SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`), then in a local build tree, then the one that came with freerdp-tk. `PATH` order decides, whatever the names: a release that puts its own `bin/` first gets its own client, not the system's. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
+- **Finds the client for you:** "(auto)" takes the client that came with freerdp-tk, then the first FreeRDP 3 SDL client on your `PATH` (`sdl-freerdp`, `sdl-freerdp3`, `sdl3-freerdp`), then one in a local build tree, passing over any that is not FreeRDP 3 or does not start. On `PATH`, its order decides, whatever the names: a release that puts its own `bin/` first gets its own client, not the system's. The SDL client is the one FreeRDP actively develops, and the same on Linux, Windows and macOS. You can still pick another FreeRDP 3 program with *…*.
 - **Form instead of flags:** display, monitors (*List…* asks the client which ones it sees, then you tick them; the remote desktop gets them as separate screens, or as one big screen with `/span`), graphics codec (including AV1 and AV2), clipboard, sound, microphone, drive sharing, log level, plus a box for extra arguments.
 - **Live command preview:** shows the exact command line, with the password hidden, and copies it for you.
 - **Session log:** runs several sessions at once and shows each client's output.
@@ -134,14 +134,17 @@ One-time setup:
 
 Each release after that:
 
+1. In `src/freerdp_tk/RELEASE_NOTES.md`, rename the section "Unreleased" to the release's version, commit and push to `main`, and wait until its tests pass.
+2. Tag that commit and push the tag:
+
 ```bash
 git tag 20261107.1          # yyyymmdd.index, the index counting that day's releases from 1
 git push origin 20261107.1
 ```
 
-Only a tag of this form starts the release; the tests run on every push to `main`. A tag whose release failed stays as it is: fix it and tag the next index.
+Only a tag of this form starts the release; the tests run on every push to `main`. The release waits for the tests of its commit and stops, before anything is published, when they failed or when the notes have no section for its version. A tag whose release failed stays as it is: fix it and tag the next index.
 
-The workflow builds the package, adds the client to one wheel per platform (`scripts/bundle_client.py`), checks on a runner of each platform that the wheel installs and its client starts, and then uploads them all to PyPI, with the plain wheel and the sdist.
+The workflow builds the package, adds the client to one wheel per platform (`scripts/bundle_client.py`), checks on a runner of each platform that the wheel installs and its client starts, and then uploads them all to PyPI, with the plain wheel and the sdist. Then it makes the GitHub release, with that version's notes and the same files. The window shows the version in its title, and the notes under *About*.
 
 To move to a newer client, pin a release of rdp-release-kit and commit `client.lock`:
 
