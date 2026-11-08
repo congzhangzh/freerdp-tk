@@ -1,3 +1,5 @@
+import pytest
+
 from freerdp_tk import app
 from freerdp_tk.app import build_args
 
@@ -52,3 +54,10 @@ def test_chosen_monitors():
     args = build_args({"host": "h", "monitors": "2", "multimon": True}, "")
     assert args.count("/multimon") == 1
     assert not any(a.startswith(("/monitors", "/multimon")) for a in build_args({"host": "h"}, ""))
+
+
+@pytest.mark.parametrize("gfx", ["AV2:i444", "AV2:i420"])
+def test_av2_is_offered_and_passed_as_is(gfx):
+    """The kit's clients take /gfx:AV2:i444 and /gfx:AV2:i420, as for AV1."""
+    assert gfx in app.GFX_CHOICES
+    assert f"/gfx:{gfx}" in build_args({"host": "h", "gfx": gfx}, "")

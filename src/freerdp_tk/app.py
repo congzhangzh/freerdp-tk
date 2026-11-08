@@ -58,7 +58,7 @@ BUILD_GLOB = "client/SDL/SDL3/*freerdp*"
 BUNDLED = Path(__file__).parent / "client" / f"sdl-freerdp{EXE}"
 HOTKEY_PREFS = '{ "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"] }\n'
 GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV1:i444",
-               "AV1:i420"]
+               "AV1:i420", "AV2:i444", "AV2:i420"]  # AV1, AV2: only clients built with them
 CERT_CHOICES = ["tofu", "ignore", "deny"]
 LOG_LEVELS = ["(default)", "OFF", "FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"]
 HIDDEN = "********"
