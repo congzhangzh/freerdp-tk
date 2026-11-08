@@ -151,6 +151,9 @@ TEXTS = {
         "Window size": "窗口大小",
         "Resize the remote desktop with the window": "远程桌面随窗口调整大小",
         "Use all monitors": "使用所有显示器",
+        "Several monitors as": "多个显示器显示为",
+        "separate screens": "各自独立的屏幕",
+        "one big screen": "一整块大屏幕",
         "List{dots}": "列出{dots}",
         "Monitors": "显示器",
         "Full screen on just these (IDs from List{dots}); empty: as above":
@@ -281,6 +284,9 @@ TEXTS = {
         "Window size": "ウィンドウサイズ",
         "Resize the remote desktop with the window": "ウィンドウに合わせてリモートデスクトップのサイズを変える",
         "Use all monitors": "すべてのモニターを使う",
+        "Several monitors as": "複数モニターの扱い",
+        "separate screens": "別々の画面",
+        "one big screen": "一つの大きな画面",
         "List{dots}": "一覧{dots}",
         "Monitors": "モニター",
         "Full screen on just these (IDs from List{dots}); empty: as above":
@@ -408,6 +414,9 @@ TEXTS = {
         "Window size": "Taille de la fenêtre",
         "Resize the remote desktop with the window": "Redimensionner le bureau distant avec la fenêtre",
         "Use all monitors": "Utiliser tous les écrans",
+        "Several monitors as": "Plusieurs écrans",
+        "separate screens": "écrans séparés",
+        "one big screen": "un seul grand écran",
         "List{dots}": "Lister{dots}",
         "Monitors": "Écrans",
         "Full screen on just these (IDs from List{dots}); empty: as above":

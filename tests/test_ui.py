@@ -215,6 +215,20 @@ def test_list_and_pick_monitors(make_ui, fake_client, monkeypatch):
     assert button(ui, f"List{app.GLYPHS['dots']}").instate(["!disabled"])
 
 
+def test_several_monitors_as_one_big_screen(make_ui, fake_client):
+    """The choice shows in the preview, and a saved connection from before it keeps
+    separate screens, the old behaviour."""
+    from freerdp_tk import app
+    ui = make_ui()
+    ui._fill("old", {"host": "h", "multimon": True}, "")
+    assert ui.vars["multimon_mode"].get() == app.SEPARATE
+    preview = lambda: ui.preview.get("1.0", "end")
+    pump(ui, lambda: "/multimon" in preview())
+    assert "/span" not in preview()
+    ui.vars["multimon_mode"].set(app.ONE_BIG)
+    pump(ui, lambda: "/multimon /span" in preview())
+
+
 def test_no_monitors_listed(make_ui, fake_client, monkeypatch):
     from freerdp_tk import app
     errors = []

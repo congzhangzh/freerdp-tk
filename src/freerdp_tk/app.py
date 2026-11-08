@@ -72,10 +72,15 @@ PLAIN_GLYPHS = {"dots": "...", "dot": "*", "arrow": "->"}
 GLYPHS = dict(FANCY_GLYPHS)
 
 WAIT_PORT, WAIT_OUTPUT, WAIT_TIME = "a port answers", "the output shows", "seconds have passed"
+# What the remote desktop sees with several monitors: each as its own (/multimon sends the
+# layout), or one big monitor over all of them (/span: no layout is sent). Here, each
+# monitor shows its part of the remote desktop either way.
+SEPARATE, ONE_BIG = "separate screens", "one big screen"
+MULTIMON_MODES = (SEPARATE, ONE_BIG)
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
-    "multimon": False, "monitors": "", "gfx": "(default)", "clipboard": True, "sound": True,
+    "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)", "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
@@ -84,7 +89,7 @@ FIELDS = {  # name -> default; everything a saved connection stores
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_KINDS = (WAIT_PORT, WAIT_OUTPUT, WAIT_TIME)
 # Choices that the lists show translated; the form and the saved file keep them in English.
-SHOWN_CHOICES = (AUTO, *WAIT_KINDS, "(default)", "off")
+SHOWN_CHOICES = (AUTO, *WAIT_KINDS, *MULTIMON_MODES, "(default)", "off")
 WAIT_TIMEOUT = 30  # seconds to wait for the before command when no limit is set
 MAX_SECONDS = 86400  # threading's timeouts overflow far above this; nobody waits a day
 # Client exit codes that mean "try another password" (SDL3 client,
@@ -475,6 +480,8 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
     monitors = re.findall(r"\d+", v["monitors"])
     if v["multimon"] or (monitors and not v["fullscreen"]):  # /monitors needs one of the two
         args.append("/multimon")
+        if v["multimon_mode"] == ONE_BIG:
+            args.append("/span")
     if monitors:
         args.append(f"/monitors:{','.join(monitors)}")
     if v["gfx"] == "off":
@@ -1051,17 +1058,20 @@ class App(ttk.Frame):
             values=["1280x720", "1600x900", "1920x1080", "2560x1440", "80%", "100%"]), "size")
         self._check(f, 2, tr("Resize the remote desktop with the window"), "dynamic")
         self._check(f, 3, tr("Use all monitors"), "multimon")
+        self._row(f, 4, tr("Several monitors as"),
+                  self._choices(f, "multimon_mode", list(MULTIMON_MODES), state="readonly"),
+                  "multimon_mode")
         monitors = ttk.Frame(f)
         ttk.Entry(monitors, textvariable=self.vars["monitors"]).pack(
             side="left", fill="x", expand=True)
         self.list_monitors = ttk.Button(monitors, text=tr("List{dots}", dots=GLYPHS["dots"]),
                                         command=self._pick_monitors)
         self.list_monitors.pack(side="left")
-        self._row(f, 4, tr("Monitors"), monitors, "monitors")
+        self._row(f, 5, tr("Monitors"), monitors, "monitors")
         ttk.Label(f, text=tr("Full screen on just these (IDs from List{dots}); empty: as above",
                              dots=GLYPHS["dots"]),
-                  foreground="gray").grid(row=5, column=1, sticky="w")
-        self._row(f, 6, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
+                  foreground="gray").grid(row=6, column=1, sticky="w")
+        self._row(f, 7, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
                                                             state="readonly"),
                   "gfx")
         return f

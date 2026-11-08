@@ -61,3 +61,20 @@ def test_av2_is_offered_and_passed_as_is(gfx):
     """The kit's clients take /gfx:AV2:i444 and /gfx:AV2:i420, as for AV1."""
     assert gfx in app.GFX_CHOICES
     assert f"/gfx:{gfx}" in build_args({"host": "h", "gfx": gfx}, "")
+
+
+def test_several_monitors_as_separate_screens_by_default():
+    """/multimon sends the layout: the remote desktop gets each monitor as its own."""
+    args = build_args({"host": "h", "multimon": True}, "")
+    assert "/multimon" in args and "/span" not in args
+
+
+@pytest.mark.parametrize("v", [{"multimon": True}, {"monitors": "1,2"}])
+def test_several_monitors_as_one_big_screen(v):
+    """/span sends no layout: the remote desktop gets one monitor over all of them."""
+    args = build_args({"host": "h", "multimon_mode": app.ONE_BIG, **v}, "")
+    assert args.index("/span") == args.index("/multimon") + 1
+
+
+def test_one_big_screen_means_nothing_on_one_monitor():
+    assert "/span" not in build_args({"host": "h", "multimon_mode": app.ONE_BIG}, "")
