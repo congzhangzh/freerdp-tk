@@ -23,6 +23,7 @@ import functools
 import json
 import math
 import os
+import platform
 import queue
 import re
 import shlex
@@ -34,14 +35,17 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, font, messagebox, simpledialog, ttk
 
-from freerdp_tk import credentials, i18n
+from freerdp_tk import __version__, credentials, i18n
 from freerdp_tk.i18n import tr
 from freerdp_tk.supervise import EXIT_MARK, GRACE
 
 APP = "freerdp-tk"
+PROJECT = "https://github.com/congzhangzh/freerdp-tk"
+RELEASE_NOTES = Path(__file__).parent / "RELEASE_NOTES.md"  # in the wheel, so they work offline
 IS_WIN = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 EXE = ".exe" if IS_WIN else ""
@@ -595,6 +599,62 @@ def ask_password(root: tk.Tk, prompt: str, remember: bool,
     return answer[0] if answer else None
 
 
+def release_notes() -> str:
+    """The release notes, newest first, as the package carries them."""
+    try:
+        return RELEASE_NOTES.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def show_text(root: tk.Tk, title: str, text: str):
+    """A window with text to read and copy, such as the release notes."""
+    top = tk.Toplevel(root)
+    top.title(title)
+    top.transient(root)
+    frame = ttk.Frame(top, padding=8)
+    frame.pack(fill="both", expand=True)
+    box = tk.Text(frame, wrap="word", width=90, height=30)
+    bar = ttk.Scrollbar(frame, command=box.yview)
+    box.configure(yscrollcommand=bar.set)
+    bar.pack(side="right", fill="y")
+    box.pack(side="left", fill="both", expand=True)
+    box.insert("1.0", text)
+    box.configure(state="disabled")  # read only, still selectable
+    ttk.Button(top, text=tr("Close"), command=top.destroy).pack(pady=(0, 8))
+    return top
+
+
+def show_about(root: tk.Tk, client: str) -> tk.Toplevel:
+    """Who this is: the version, the client it would start, Python and Tk, the
+    license, and the way to the release notes and the project page."""
+    top = tk.Toplevel(root)
+    top.title(tr("About"))
+    top.transient(root)
+    top.resizable(False, False)
+    frame = ttk.Frame(top, padding=12)
+    frame.pack(fill="both", expand=True)
+    title = font.nametofont("TkDefaultFont").copy()
+    title.configure(size=title.cget("size") + 4, weight="bold")
+    top.title_font = title  # keep it alive with the window
+    ttk.Label(frame, text=f"{APP} {__version__}", font=title).pack(anchor="w")
+    for line in (tr("FreeRDP client: {client}", client=client),
+                 tr("Python {python}, Tk {tk}", python=platform.python_version(),
+                    tk=root.tk.call("info", "patchlevel")),
+                 tr("License: {license}", license="Apache-2.0"), PROJECT):
+        ttk.Label(frame, text=line).pack(anchor="w", pady=(4, 0))
+    buttons = ttk.Frame(frame)
+    buttons.pack(fill="x", pady=(12, 0))
+    ttk.Button(buttons, text=tr("Release notes"),
+               command=lambda: show_text(root, tr("Release notes"), release_notes())
+               ).pack(side="left")
+    ttk.Button(buttons, text=tr("Project page"),
+               command=lambda: webbrowser.open(PROJECT)).pack(side="left", padx=4)
+    ttk.Button(buttons, text=tr("Close"), command=top.destroy).pack(side="right")
+    top.bind("<Escape>", lambda _: top.destroy())
+    return top
+
+
 def ask_unsaved(root: tk.Tk, question: str, changed: list[str]) -> str | None:
     """Ask what to do with changes that are about to go: "save", "discard", None to stay."""
     top = tk.Toplevel(root)
@@ -916,6 +976,7 @@ class App(ttk.Frame):
         ttk.Button(buttons, text=tr("Copy command"), command=self._copy_command).pack(side="left")
         ttk.Button(buttons, text=tr("Clear log"),
                    command=lambda: self.log.delete("1.0", "end")).pack(side="right")
+        ttk.Button(buttons, text=tr("About"), command=self._about).pack(side="right")
         self._language_button(buttons).pack(side="right", padx=4)
 
         panes = ttk.PanedWindow(self, orient="horizontal")
@@ -976,6 +1037,14 @@ class App(ttk.Frame):
         show()
         return ttk.Combobox(parent, textvariable=shown, values=[names.get(c, c) for c in choices],
                             **options)
+
+    def _about(self):
+        client = self._resolve_client(self.vars["client"].get())
+        if not client:
+            client = tr("<no client found>")
+        elif self.versions.get(client):
+            client = f"{client} (FreeRDP {self.versions[client]})"
+        self.about = show_about(self.root, client)
 
     def _language_button(self, parent) -> ttk.Menubutton:
         """The language of the window: the system's, or one chosen here, from the next start.
@@ -1661,7 +1730,7 @@ class App(ttk.Frame):
 def main():
     move_client_hotkeys()
     root = tk.Tk()
-    root.title(APP)  # not "FreeRDP": that is the session window's ("FreeRDP: host")
+    root.title(f"{APP} {__version__}")  # not "FreeRDP": the session window's ("FreeRDP: host")
     root.minsize(760, 640)
     style = ttk.Style(root)
     if not (IS_WIN or IS_MAC) and "clam" in style.theme_names():

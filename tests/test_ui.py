@@ -249,7 +249,32 @@ def test_the_window_is_called_freerdp_tk(home, monkeypatch):
 
     monkeypatch.setattr(tk.Tk, "mainloop", instead_of_the_loop)
     app.main()
-    assert titles == ["freerdp-tk"]
+    assert titles == [f"freerdp-tk {app.__version__}"]
+
+
+def test_about_shows_the_version_and_the_release_notes(make_ui):
+    from tkinter import ttk
+    from freerdp_tk import app
+    ui = make_ui()
+    click(ui, button(ui, "About"))
+    pump(ui, lambda: getattr(ui, "about", None) is not None)
+    labels = []
+
+    def walk(widget):
+        for child in widget.winfo_children():
+            if isinstance(child, ttk.Label):
+                labels.append(child.cget("text"))
+            walk(child)
+
+    walk(ui.about)
+    assert f"freerdp-tk {app.__version__}" in labels
+    assert any(text.startswith("FreeRDP client: ") for text in labels)
+    notes = app.show_text(ui.root, "Release notes", app.release_notes())
+    text = next(c for c in notes.winfo_children()[0].winfo_children()
+                if c.winfo_class() == "Text").get("1.0", "end")
+    assert "## 20261107.3" in text
+    notes.destroy()
+    ui.about.destroy()
 
 
 def test_a_choice_box_is_found_by_its_choices(make_ui):

@@ -199,6 +199,13 @@ TEXTS = {
             "{name}：{client} 不是 FreeRDP 3 客户端。freerdp-tk 通过标准输入"
             "（/args-from:stdin）传递密码，这需要 FreeRDP 3。",
         "Enter a host to connect to.": "请输入要连接的主机。",
+        "About": "关于",
+        "Close": "关闭",
+        "Release notes": "版本说明",
+        "Project page": "项目主页",
+        "FreeRDP client: {client}": "FreeRDP 客户端：{client}",
+        "Python {python}, Tk {tk}": "Python {python}，Tk {tk}",
+        "License: {license}": "许可证：{license}",
         "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
         "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
         "session is attached.":
@@ -328,6 +335,13 @@ TEXTS = {
             "{name}: {client} は FreeRDP 3 のクライアントではありません。freerdp-tk はパスワードを"
             "標準入力（/args-from:stdin）で渡すので、FreeRDP 3 が必要です。",
         "Enter a host to connect to.": "接続先のホストを入力してください。",
+        "About": "このアプリについて",
+        "Close": "閉じる",
+        "Release notes": "リリースノート",
+        "Project page": "プロジェクトのページ",
+        "FreeRDP client: {client}": "FreeRDP クライアント: {client}",
+        "Python {python}, Tk {tk}": "Python {python}、Tk {tk}",
+        "License: {license}": "ライセンス: {license}",
         "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
         "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
         "session is attached.":
@@ -458,6 +472,13 @@ TEXTS = {
             "{name} : {client} n'est pas un client FreeRDP 3. freerdp-tk passe le mot de passe "
             "sur l'entrée standard (/args-from:stdin), ce qui demande FreeRDP 3.",
         "Enter a host to connect to.": "Saisissez l'hôte auquel se connecter.",
+        "About": "À propos",
+        "Close": "Fermer",
+        "Release notes": "Notes de version",
+        "Project page": "Page du projet",
+        "FreeRDP client: {client}": "Client FreeRDP : {client}",
+        "Python {python}, Tk {tk}": "Python {python}, Tk {tk}",
+        "License: {license}": "Licence : {license}",
         "{name}: this desktop has no monitor right now (its screen is 0x0), so the client "
         "has nowhere to show the remote desktop. Connect again once a monitor or a remote "
         "session is attached.":
