@@ -233,6 +233,25 @@ def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     assert make_ui().saved["lab"]["client"] == app.AUTO
 
 
+def test_the_window_is_called_freerdp_tk(home, monkeypatch):
+    """Not "FreeRDP": a window list then shows which window is this one, and the
+    session's own window ("FreeRDP: host", which the kit's demo looks for) stays apart."""
+    import tkinter as tk
+    from freerdp_tk import app
+    titles = []
+
+    def instead_of_the_loop(root):
+        titles.append(root.title())
+        for child in root.winfo_children():
+            if isinstance(child, app.App):
+                child.keyring.close(timeout=5)
+        root.destroy()
+
+    monkeypatch.setattr(tk.Tk, "mainloop", instead_of_the_loop)
+    app.main()
+    assert titles == ["freerdp-tk"]
+
+
 def test_a_choice_box_is_found_by_its_choices(make_ui):
     """Outside drivers (the kit's demo, hook/drive.py) find a choice list by its
     values: since 20261107.2 its Combobox shows a display variable of its own, not

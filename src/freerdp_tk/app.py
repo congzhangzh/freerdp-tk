@@ -1661,7 +1661,7 @@ class App(ttk.Frame):
 def main():
     move_client_hotkeys()
     root = tk.Tk()
-    root.title("FreeRDP")
+    root.title(APP)  # not "FreeRDP": that is the session window's ("FreeRDP: host")
     root.minsize(760, 640)
     style = ttk.Style(root)
     if not (IS_WIN or IS_MAC) and "clam" in style.theme_names():
