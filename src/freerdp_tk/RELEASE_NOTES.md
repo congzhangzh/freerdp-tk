@@ -4,7 +4,7 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
-## Unreleased
+## 20261112.2
 
 - **A connection saved with the bundled client keeps up with upgrades.** `uvx` unpacks each
   release into a folder of its own, and the old folders stay: a connection that saved the
