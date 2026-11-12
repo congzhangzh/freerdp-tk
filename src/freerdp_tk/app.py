@@ -60,6 +60,7 @@ BUILD_GLOB = "client/SDL/SDL3/*freerdp*"
 # The wheels of most platforms carry a client (scripts/bundle_client.py); a
 # source checkout and the plain wheel have none.
 BUNDLED = Path(__file__).parent / "client" / f"sdl-freerdp{EXE}"
+BUNDLED_TAIL = ("freerdp_tk", "client", f"sdl-freerdp{EXE}")  # where any wheel keeps it
 HOTKEY_PREFS = '{ "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"] }\n'
 GFX_CHOICES = ["(default)", "off", "AVC444", "AVC420", "RFX", "progressive", "AV1:i444",
                "AV1:i420", "AV2:i444", "AV2:i420"]  # AV1, AV2: only clients built with them
@@ -136,6 +137,36 @@ def move_client_hotkeys() -> None:
             f.write(HOTKEY_PREFS)
     except OSError:
         pass
+
+
+def is_bundled(choice: str) -> bool:
+    """A client choice that is the client of a freerdp-tk wheel: this one's, or
+    another's. uvx unpacks each release into a folder of its own in uv's cache,
+    and the old folders stay, so a path saved into one of them keeps running the
+    client of that old release, which a newer server may no longer understand."""
+    choice = choice.strip()
+    if not choice:
+        return False
+    path = Path(choice)
+    tail = tuple(part.lower() for part in path.parts[-3:]) if IS_WIN else path.parts[-3:]
+    return tail == BUNDLED_TAIL or is_ours(choice)
+
+
+def is_ours(client: str) -> bool:
+    """The client in this freerdp-tk's own wheel."""
+    try:
+        return Path(client.strip()).samefile(BUNDLED)
+    except OSError:
+        return False
+
+
+def saved_client(choice: str) -> str:
+    """What a client choice is saved as. A wheel's client is saved as auto, which
+    takes this freerdp-tk's own client first: a path would outlive the release.
+    So is what older versions saved for auto ("" or OLD_AUTO)."""
+    if choice.strip() in ("", OLD_AUTO) or is_bundled(choice):
+        return AUTO
+    return choice
 
 
 def find_clients() -> list[str]:
@@ -884,6 +915,7 @@ class App(ttk.Frame):
         self.password = tk.StringVar()
         self.filter = tk.StringVar()
         self.store = config_dir() / "profiles.json"
+        self.load_notes: list[str] = []  # what _load_saved changed, logged once the log is up
         self.saved = self._load_saved()
         self.passwords: dict[str, str] = {}  # per saved connection, memory only
         self.sessions: list[Session] = []
@@ -909,6 +941,8 @@ class App(ttk.Frame):
         self._refresh_saved()
         self._refresh_preview()
         self._log(f"clients found: {', '.join(self.clients) or 'none'}")
+        for note in self.load_notes:
+            self._log(note)
         if language_note:
             self._log(language_note)
         self.keyring.run(credentials.problem, lambda problem, _: self._keyring_checked(problem))
@@ -1460,9 +1494,13 @@ class App(ttk.Frame):
             data = json.loads(self.store.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
-        for v in data.values():  # older versions stored "" or OLD_AUTO for auto
-            if v.get("client", "") in ("", OLD_AUTO):
-                v["client"] = AUTO
+        for name, v in data.items():
+            client = v.get("client", "")
+            v["client"] = saved_client(client)
+            if v["client"] != client and is_bundled(client) and not is_ours(client):
+                self.load_notes.append(
+                    f"'{name}': its client {client} came with another freerdp-tk; it uses "
+                    f"auto now, this freerdp-tk's own client (saved at the next Save)")
         return data
 
     def _write_saved(self, refresh: bool = True):
@@ -1586,6 +1624,9 @@ class App(ttk.Frame):
         if not name:
             messagebox.showerror(APP, tr("Enter a name or a host first."))
             return False
+        client = saved_client(self.vars["client"].get())
+        if self.vars["client"].get() != client:  # the form shows what is saved
+            self.vars["client"].set(client)
         old, v = self.saved.get(name), self._form()
         self.saved[name] = v
         self.current = name

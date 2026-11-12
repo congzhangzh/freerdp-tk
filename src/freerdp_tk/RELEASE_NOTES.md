@@ -4,6 +4,16 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
+## Unreleased
+
+- **A connection saved with the bundled client keeps up with upgrades.** `uvx` unpacks each
+  release into a folder of its own, and the old folders stay: a connection that saved the
+  bundled client as its path kept running that release's client after an upgrade (an old
+  client cannot read the AV2 of newer servers, and the session closed at once). Now the
+  bundled client, picked from the Client list, is saved as auto, and a saved path to another
+  freerdp-tk's client is read as auto, with a line in the log. A client you chose elsewhere
+  stays as you chose it.
+
 ## 20261112.1
 
 - **A newer bundled client: FreeRDP release-20261111.4** (rdp-release-kit 20261112.1), was

@@ -233,6 +233,71 @@ def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     assert make_ui().saved["lab"]["client"] == app.AUTO
 
 
+def old_wheel_client(home):
+    """The client of an older freerdp-tk, in the folder uvx unpacked that release into."""
+    site = home / ".cache" / "uv" / "archive-v0" / "CiSoZQU4" / "lib" / "site-packages"
+    return program(site / "freerdp_tk" / "client" / "sdl-freerdp")
+
+
+def test_a_wheel_client_is_saved_as_auto(home, monkeypatch):
+    """Any freerdp-tk's own client, this one's or an older release's, is auto: a path
+    into a release's folder would run that release's client after the next upgrade.
+    A client the user chose elsewhere stays as chosen."""
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    monkeypatch.setattr(app, "BUNDLED", Path(own))
+    for auto in (old_wheel_client(home), own, f" {own} ", "", app.OLD_AUTO, app.AUTO):
+        assert app.saved_client(auto) == app.AUTO, auto
+    build = program(home / "projects" / "FreeRDP" / "build" / "client" / "SDL" / "SDL3"
+                    / "sdl-freerdp")
+    for chosen in ("/usr/bin/sdl-freerdp3", "sdl-freerdp3", build,
+                   str(home / "freerdp_tk" / "sdl-freerdp")):
+        assert app.saved_client(chosen) == chosen
+
+
+def test_a_client_saved_from_an_older_release_becomes_auto(make_ui, fake_client, home):
+    """Seen on macOS (2026-11-12): profiles held the client of 20261106.3 in an old uv
+    cache folder; it could not read the server's AV2 and the session closed at once."""
+    from freerdp_tk import app
+    old = old_wheel_client(home)
+    ui = make_ui()
+    ui.store.parent.mkdir(parents=True, exist_ok=True)
+    ui.store.write_text(json.dumps({"lab": {"host": "h", "client": old},
+                                    "mine": {"host": "h", "client": "/usr/bin/sdl-freerdp3"}}))
+    again = make_ui()
+    assert again.saved["lab"]["client"] == app.AUTO
+    assert again.saved["mine"]["client"] == "/usr/bin/sdl-freerdp3"
+    log = log_text(again)
+    assert f"'lab': its client {old} came with another freerdp-tk" in log
+    assert "'mine'" not in log
+    again.saved_list.selection_set(again.visible.index("lab"))
+    again._on_select()
+    assert again.name.get() == "lab"
+    assert again.vars["client"].get() == app.AUTO and not again._changed()
+    click(again, button(again, "Save"))
+    assert json.loads(again.store.read_text())["lab"]["client"] == app.AUTO
+
+
+def test_choosing_the_wheel_client_saves_auto(make_ui, fake_client, home, monkeypatch):
+    """The Client list shows the wheel's client as its path; picking it must not save
+    that path, which the next release would leave behind."""
+    from freerdp_tk import app
+    own = program(home / "wheel" / "client" / "sdl-freerdp")
+    monkeypatch.setattr(app, "BUNDLED", Path(own))
+    ui = make_ui()
+    from tkinter import ttk
+    box = next(w for w in widgets(ui) if isinstance(w, ttk.Combobox)
+               and own in w.cget("values"))
+    box.set(own)
+    pump(ui, lambda: ui.vars["client"].get() == own)
+    type_into(ui, entry_for(ui, ui.name), "lab")
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    click(ui, button(ui, "Save"))
+    assert json.loads(ui.store.read_text())["lab"]["client"] == app.AUTO
+    assert ui.vars["client"].get() == app.AUTO and not ui._changed()
+    assert ui._resolve_client(app.AUTO) == own  # auto still runs it
+
+
 def test_the_window_is_called_freerdp_tk(home, monkeypatch):
     """Not "FreeRDP": a window list then shows which window is this one, and the
     session's own window ("FreeRDP: host", which the kit's demo looks for) stays apart."""
