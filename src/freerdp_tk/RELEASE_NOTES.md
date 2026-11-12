@@ -4,6 +4,15 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
+## 20261112.1
+
+- **A newer bundled client: FreeRDP release-20261111.4** (rdp-release-kit 20261112.1), was
+  20261106.3. It sends AV2 the way FreeRDP merged it, so AV2 works with servers built from
+  FreeRDP's master and with the kit's xrdp; the old client's AV2 did not match them.
+- In the client too: a graphics surface that reaches past the window's edge is cut off
+  instead of shrunk; a key or mouse event the connection cannot send no longer counts as a
+  failure; files on the clipboard are offered only where they can be opened.
+
 ## 20261108.1
 
 - **Several monitors as separate screens or one big screen.** With *Use all monitors* (or a
