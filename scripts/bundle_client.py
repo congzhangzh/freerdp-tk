@@ -51,10 +51,20 @@ def fetch(url: str) -> bytes:
 
 
 def read_lock(path: Path = LOCK) -> dict[str, str]:
-    """{file name: SHA-256} of the kit's files; the release is in the names."""
+    """{file name: SHA-256} of the kit's files."""
     pairs = (line.split() for line in path.read_text().splitlines()
              if line.strip() and not line.startswith("#"))
     return {name: sha for sha, name in pairs}
+
+
+def lock_release(path: Path = LOCK) -> str:
+    """The kit release the files come from: its `# release` line. The file names
+    carry the FreeRDP version, which is not the kit's release (sdl3-freerdp-20261111.4
+    is in release 20261112.1); a lock without the line is from when they were one."""
+    for line in path.read_text().splitlines():
+        if line.startswith("# release "):
+            return line.split()[2]
+    return next(iter(read_lock(path))).split("-")[2]
 
 
 def pin(version: str) -> None:
@@ -65,7 +75,8 @@ def pin(version: str) -> None:
     if len(lines) != len(PLATFORMS):
         sys.exit(f"release {version} has {len(lines)} clients, not {len(PLATFORMS)}")
     head = LOCK.read_text().partition("\n\n")[0].rstrip()
-    LOCK.write_text(head + "\n\n" + "\n".join(sorted(lines, key=lambda s: s.split()[1])) + "\n")
+    LOCK.write_text(head + "\n\n" + f"# release {version}\n"
+                    + "\n".join(sorted(lines, key=lambda s: s.split()[1])) + "\n")
     print(f"{LOCK.name}: release {version}")
 
 
@@ -144,9 +155,9 @@ def main() -> None:
     if not args.wheel:
         parser.error("name the wheel, or --pin a release")
     lock = read_lock()
+    release = lock_release()
     for tag, end in PLATFORMS.items():
         name = next(n for n in lock if n.endswith(end))
-        release = name.split("-")[2]
         data = fetch(f"{KIT}/{release}/{name}")
         if hashlib.sha256(data).hexdigest() != lock[name]:
             sys.exit(f"{name}: not the file client.lock pins")
