@@ -16,6 +16,7 @@ before anything is published. The window shows these notes under *About*.
   server that prefers it, because the bundled client still offered both; the same happened with
   *AVC420*, *AVC444*, *RFX* or *progressive*. Now the client offers only the codec you pick;
   with *(default)* the server still chooses. *Show live stats* shows which one runs.
+- Under the hood: the bundled client is FreeRDP 20261115.1 (rdp-release-kit 20261115.7).
 
 ## 20261115.1
 
