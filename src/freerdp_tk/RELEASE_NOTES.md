@@ -4,7 +4,7 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
-## Unreleased
+## 20261115.6
 
 - Under the hood: the bundled client is FreeRDP 20261115.4 (rdp-release-kit 20261115.10).
 
