@@ -4,7 +4,7 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
-## Unreleased
+## 20261115.2
 
 - **Live stats with a tick.** *Display* has a new *Show live stats*: the session starts with
   the overlay of codec, frames per second, bandwidth and round trip already on, saved with each
