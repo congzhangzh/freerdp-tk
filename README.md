@@ -89,7 +89,7 @@ The RDP server then only has to be reachable from the jump host, and the client 
 
 ## Hotkeys
 
-The SDL client takes a few keys for itself: a modifier plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize) and *D* (disconnect). Its own default modifier is Right Shift, so a capital D typed with the right Shift key would end the session.
+The SDL client takes a few keys for itself: a modifier plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize), *I* (show or hide the stats overlay: codec, frames per second, bandwidth, round trip) and *D* (disconnect). Its own default modifier is Right Shift, so a capital D typed with the right Shift key would end the session.
 
 So when freerdp-tk starts and the client's settings file does not exist yet, it writes one that moves the modifier to Right Alt + Right Shift (Right Option + Right Shift on a Mac):
 
