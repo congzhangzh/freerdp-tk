@@ -423,3 +423,78 @@ def test_the_monitor_dialog(make_ui):
 
     ui.root.after(200, answer)
     assert app.pick_monitors(ui.root, monitors, ["1"]) == ["3"]
+
+
+@pytest.mark.parametrize("mac, keys", [(False, "Right Alt + Right Shift + I"),
+                                       (True, "Right Option + Right Shift + I")])
+def test_show_live_stats_is_saved_per_connection(make_ui, fake_client, monkeypatch, mac, keys):
+    """The Display tab's Show live stats passes +sdl-info, names the keys that show or
+    hide the overlay in a session, and is kept with each saved connection."""
+    from freerdp_tk import app
+    monkeypatch.setattr(app, "IS_MAC", mac)
+    app.move_client_hotkeys()  # as main() does before the window
+    ui = make_ui()
+    texts = [w.cget("text") for w in widgets(ui) if w.winfo_class() in ("TLabel", "TCheckbutton")]
+    assert "Show live stats" in texts
+    assert f"Show or hide them in a session: {keys}" in texts
+    box = next(w for w in widgets(ui) if w.winfo_class() == "TCheckbutton"
+               and w.cget("text") == "Show live stats")
+    type_into(ui, entry_for(ui, ui.name), "lab")
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    ui.tabs.select(box.master)  # the Display tab, as a user would open it
+    ui.root.update()
+    click(ui, box)
+    pump(ui, lambda: ui.vars["stats"].get())
+    assert "+sdl-info" in ui.preview.get("1.0", "end")
+    click(ui, button(ui, "Save"))
+    ui.name.set("other")
+    click(ui, box)
+    pump(ui, lambda: not ui.vars["stats"].get())
+    assert "+sdl-info" not in ui.preview.get("1.0", "end")
+    click(ui, button(ui, "Save"))
+    stored = json.loads(ui.store.read_text())
+    assert stored["lab"]["stats"] is True and stored["other"]["stats"] is False
+    again = make_ui()
+    again.saved_list.selection_set(again.visible.index("lab"))
+    again._on_select()
+    assert again.vars["stats"].get() is True
+
+
+def test_no_keys_shown_when_the_client_settings_cannot_be_read(make_ui):
+    from freerdp_tk import app
+    path = app.client_prefs_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{ not json")
+    ui = make_ui()
+    texts = [w.cget("text") for w in widgets(ui) if w.winfo_class() == "TLabel"]
+    assert "Show live stats" in [w.cget("text") for w in widgets(ui)
+                                 if w.winfo_class() == "TCheckbutton"]
+    assert not any(t.startswith("Show or hide them") for t in texts)
+
+
+@pytest.mark.parametrize("bundled", [True, False])
+def test_connect_says_when_the_client_has_no_live_stats(make_ui, fake_client, monkeypatch,
+                                                        home, bundled):
+    """An older client stops on the unknown +sdl-info a second after it starts; its
+    own help tells beforehand, so Connect says why instead."""
+    from freerdp_tk import app
+    monkeypatch.setenv("FAKE_NO_STATS", "1")
+    if bundled:  # a wheel's client to pick instead; it stays out of auto here
+        own = program(home / "wheel" / "client" / "sdl-freerdp")
+        monkeypatch.setattr(app, "BUNDLED", Path(own))
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    client = next(c for c in ui.clients if Path(c).parent == home / "bin")  # the fake one
+    v = {"host": "rdp.example.com", "client": client, "stats": True}
+    assert ui._launch("demo", v, "s3cret!") is False
+    arrow = app.GLYPHS["arrow"]
+    assert errors == [f"demo: {client} has no live stats. Untick Display {arrow} Show live stats, "
+                      + ("or pick the bundled client." if bundled else "or pick a newer client.")]
+    assert not fake_client.exists()
+    monkeypatch.delenv("FAKE_NO_STATS")
+    assert ui._launch("demo", v, "s3cret!") is False  # the answer is kept, not asked again
+    ui.stats.clear()
+    assert ui._launch("demo", v, "s3cret!") is True
+    pump(ui, fake_client.exists)
+    assert "+sdl-info" in json.loads(fake_client.read_text())["stdin"].splitlines()

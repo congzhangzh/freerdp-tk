@@ -85,7 +85,8 @@ MULTIMON_MODES = (SEPARATE, ONE_BIG)
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
-    "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)", "clipboard": True, "sound": True,
+    "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)",
+    "stats": False, "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
@@ -167,6 +168,71 @@ def saved_client(choice: str) -> str:
     if choice.strip() in ("", OLD_AUTO) or is_bundled(choice):
         return AUTO
     return choice
+
+
+def modifier_name(entry: str) -> str | None:
+    """The key cap of one SDL_KeyModMask entry (KMOD_RALT or SDL_KMOD_RALT), in the
+    window's language; None for one that names no key to hold (KMOD_NUM, say)."""
+    mac = IS_MAC
+    names = {
+        "LSHIFT": tr("Left Shift"), "RSHIFT": tr("Right Shift"), "SHIFT": tr("Shift"),
+        "LCTRL": tr("Left Control") if mac else tr("Left Ctrl"),
+        "RCTRL": tr("Right Control") if mac else tr("Right Ctrl"),
+        "CTRL": tr("Control") if mac else tr("Ctrl"),
+        "LALT": tr("Left Option") if mac else tr("Left Alt"),
+        "RALT": tr("Right Option") if mac else tr("Right Alt"),
+        "ALT": tr("Option") if mac else tr("Alt"),
+        "LGUI": tr("Left Command") if mac else tr("Left Windows"),
+        "RGUI": tr("Right Command") if mac else tr("Right Windows"),
+        "GUI": tr("Command") if mac else tr("Windows"),
+    }
+    return names.get(entry.removeprefix("SDL_").removeprefix("KMOD_"))
+
+
+def stats_keys() -> str | None:
+    """The keys that show or hide the client's stats overlay in a session, as the
+    client reads them from its settings file (client_prefs_file(), the one
+    move_client_hotkeys() writes): the modifiers of SDL_KeyModMask, then the key
+    SDL_Info. What the file leaves out is the client's default, Right Shift and I.
+    None when that cannot be told for sure: the file cannot be read, or names a
+    modifier the client would refuse (it then turns its hotkeys off)."""
+    try:
+        prefs = json.loads(client_prefs_file().read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        prefs = {}
+    except (OSError, ValueError):
+        return None
+    if not isinstance(prefs, dict):
+        return None
+    mask = prefs.get("SDL_KeyModMask")
+    if not isinstance(mask, list):  # the client's default, as it reads a missing one
+        mask = ["KMOD_RSHIFT"]
+    names = [modifier_name(m) if isinstance(m, str) else None for m in mask]
+    if not names or None in names:
+        return None
+    key = prefs.get("SDL_Info")
+    if not (isinstance(key, str) and key.startswith("SDL_SCANCODE_") and len(key) > 13):
+        key = "SDL_SCANCODE_I"  # the client's default, also for a name it does not know
+    key = key.removeprefix("SDL_SCANCODE_")
+    return " + ".join([*names, key if len(key) == 1 else key.title()])
+
+
+STATS_ARG = "+sdl-info"
+
+
+def has_stats(client: str) -> bool | None:
+    """Whether the client draws the stats overlay: its /help lists +sdl-info.
+    None when it cannot be told (no answer in time, no help that looks like
+    FreeRDP 3's, which lists /args-from)."""
+    try:
+        done = subprocess.run([client, "/help"], capture_output=True, text=True,
+                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    text = done.stdout + done.stderr
+    if STATS_ARG in text:
+        return True
+    return False if "/args-from" in text else None
 
 
 def find_clients() -> list[str]:
@@ -523,6 +589,8 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
         args.append("-gfx")
     elif v["gfx"] != "(default)":
         args.append(f"/gfx:{v['gfx']}")
+    if v["stats"]:  # the SDL3 client's overlay: codec, frames per second, bandwidth, round trip
+        args.append(STATS_ARG)
     args.append("+clipboard" if v["clipboard"] else "-clipboard")
     if v["sound"]:
         args.append("/sound")
@@ -922,6 +990,7 @@ class App(ttk.Frame):
         self.output: queue.Queue = queue.Queue()
         self.versions: dict[str, int] = {}  # known versions only: an unknown one is asked again
         self.cannot_start: dict[str, str] = {}  # auto passes over these; asked at each Connect
+        self.stats: dict[str, bool] = {}  # client -> it has the stats overlay, once known
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1178,6 +1247,11 @@ class App(ttk.Frame):
         self._row(f, 7, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
                                                             state="readonly"),
                   "gfx")
+        self._check(f, 8, tr("Show live stats"), "stats")
+        keys = stats_keys()
+        if keys:  # nothing rather than keys that may be wrong
+            ttk.Label(f, text=tr("Show or hide them in a session: {keys}", keys=keys),
+                      foreground="gray").grid(row=9, column=1, sticky="w")
         return f
 
     def _devices_tab(self, parent):
@@ -1257,6 +1331,17 @@ class App(ttk.Frame):
                       if self.versions.get(c, 3) >= 3 and c not in self.cannot_start]
             return next(iter(usable or self.clients), "")
         return choice if shutil.which(choice) or Path(choice).is_file() else ""
+
+    def _knows_stats(self, client: str) -> bool:
+        """False only when the client's own help says it has no stats overlay: an
+        older client stops on the unknown +sdl-info ("Unexpected keyword", exit 23)
+        a second after Connect. Unknown is tried; known answers are kept."""
+        if client not in self.stats:
+            known = has_stats(client)
+            if known is None:
+                return True
+            self.stats[client] = known
+        return self.stats[client]
 
     def _ask_versions(self) -> dict[str, str]:
         """Auto takes the first client that is FreeRDP 3 and starts: a FreeRDP 2
@@ -1360,6 +1445,15 @@ class App(ttk.Frame):
             return False
         if not v["host"].strip():
             messagebox.showerror(APP, tr("Enter a host to connect to."))
+            return False
+        if v["stats"] and not self._knows_stats(client):
+            messagebox.showerror(APP, tr("{name}: {client} has no live stats. Untick Display "
+                                         "{arrow} Show live stats, or pick the bundled client.",
+                                         name=name, client=client, arrow=GLYPHS["arrow"])
+                                 if BUNDLED.is_file() else
+                                 tr("{name}: {client} has no live stats. Untick Display "
+                                    "{arrow} Show live stats, or pick a newer client.",
+                                    name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
         if no_monitor((self.winfo_screenwidth(), self.winfo_screenheight()), client):
             messagebox.showerror(APP, tr("{name}: this desktop has no monitor right now (its "

@@ -24,6 +24,11 @@ if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS say
           "     * [1] [Built-in Retina Display] 1512x982\\t+0+0\\n"
           "       [2] [DELL U2720Q] 2560x1440\\t+-2560+0"))
     sys.exit(0)
+if sys.argv[1:] == ["/help"]:  # FreeRDP 3's help; $FAKE_NO_STATS: an older one, no overlay
+    print("    /args-from:<file>|stdin|fd:<number>|env:<name>")
+    if not os.environ.get("FAKE_NO_STATS"):
+        print("    +sdl-info                         Enable the stats and info overlay")
+    sys.exit(0)
 if sys.argv[1:] == ["/version"]:
     print(f"This is FreeRDP version {os.environ.get('FAKE_VERSION', '3.99.0')} (fake)")
     sys.exit(0)

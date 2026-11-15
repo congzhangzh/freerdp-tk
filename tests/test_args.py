@@ -1,6 +1,8 @@
+import json
+
 import pytest
 
-from freerdp_tk import app
+from freerdp_tk import app, i18n
 from freerdp_tk.app import build_args
 
 
@@ -61,6 +63,69 @@ def test_av2_is_offered_and_passed_as_is(gfx):
     """The kit's clients take /gfx:AV2:i444 and /gfx:AV2:i420, as for AV1."""
     assert gfx in app.GFX_CHOICES
     assert f"/gfx:{gfx}" in build_args({"host": "h", "gfx": gfx}, "")
+
+
+def test_live_stats_pass_sdl_info():
+    """Show live stats: the SDL3 client's overlay from the start (+sdl-info); off by default."""
+    assert app.FIELDS["stats"] is False
+    assert "+sdl-info" not in build_args({"host": "h"}, "")
+    args = build_args({"host": "h", "stats": True}, "")
+    assert args.count("+sdl-info") == 1
+
+
+@pytest.fixture
+def prefs(home):
+    """Write the client's settings file (None: none there); stats_keys() reads it."""
+    def write(content):
+        path = app.client_prefs_file()
+        if content is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content if isinstance(content, str) else json.dumps(content))
+        return app.stats_keys()
+    return write
+
+
+def test_the_stats_keys_are_the_ones_the_client_reads(prefs, monkeypatch):
+    """Not a fixed text: the user's own settings file may keep Right Shift alone, or
+    name other keys; what it leaves out is the client's default."""
+    assert prefs(None) == "Right Shift + I"  # no file: the client's defaults
+    assert prefs({"SDL_Info": "SDL_SCANCODE_S"}) == "Right Shift + S"
+    app.client_prefs_file().unlink()
+    app.move_client_hotkeys()  # what freerdp-tk writes when there is none
+    assert app.stats_keys() == "Right Alt + Right Shift + I"
+    monkeypatch.setattr(app, "IS_MAC", True)
+    assert app.stats_keys() == "Right Option + Right Shift + I"
+    monkeypatch.setattr(app, "IS_MAC", False)
+    assert prefs({"SDL_KeyModMask": ["KMOD_LCTRL", "SDL_KMOD_LALT"],
+                  "SDL_Info": "SDL_SCANCODE_F9"}) == "Left Ctrl + Left Alt + F9"
+    assert prefs({"SDL_KeyModMask": ["KMOD_RSHIFT"], "SDL_Info": "nonsense"}) == \
+        "Right Shift + I"  # the client falls back to I
+
+
+@pytest.mark.parametrize("content", ["{ not json", "[]", {"SDL_KeyModMask": ["KMOD_BOGUS"]},
+                                     {"SDL_KeyModMask": []}, {"SDL_KeyModMask": ["KMOD_NUM"]}])
+def test_no_stats_keys_when_they_cannot_be_told(prefs, content):
+    """Nothing rather than keys that may be wrong: a file the client cannot read the
+    same way, or a modifier it refuses (it then turns its hotkeys off)."""
+    assert prefs(content) is None
+
+
+def test_the_stats_keys_in_french(prefs):
+    """On French keyboards Right Alt is labelled Alt Gr."""
+    try:
+        i18n.use("fr")
+        app.move_client_hotkeys()
+        assert app.stats_keys() == "Alt Gr + Maj droite + I"
+    finally:
+        i18n.use("en")
+
+
+def test_has_stats_asks_the_client_help(fake_client, monkeypatch):
+    client = app.find_clients()[0]
+    assert app.has_stats(client) is True
+    monkeypatch.setenv("FAKE_NO_STATS", "1")
+    assert app.has_stats(client) is False
+    assert app.has_stats(client + "-not-there") is None
 
 
 def test_several_monitors_as_separate_screens_by_default():

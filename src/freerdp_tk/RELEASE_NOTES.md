@@ -4,6 +4,15 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
+## Unreleased
+
+- **Live stats with a tick.** *Display* has a new *Show live stats*: the session starts with
+  the overlay of codec, frames per second, bandwidth and round trip already on, saved with each
+  connection. The tab names the keys that show or hide it in a session, as your client's
+  settings have them: Right Alt + Right Shift + I as freerdp-tk sets them up (Right Option +
+  Right Shift + I on a Mac). It needs a client that knows the overlay, as the bundled one does;
+  with an older one, Connect says so instead of failing.
+
 ## 20261115.1
 
 - **See what your session is doing.** Press Right Alt + Right Shift + I in a session (Right
