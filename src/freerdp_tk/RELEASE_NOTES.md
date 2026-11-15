@@ -6,11 +6,14 @@ before anything is published. The window shows these notes under *About*.
 
 ## 20261115.1
 
-- **The bundled client is FreeRDP 20261114.3** (rdp-release-kit 20261115.3; was 20261111.4):
-  the stats and info overlay (off by default: `+sdl-info` under Extra arguments, or the SDL_Info
-  hotkey; client info top left, the live numbers top right), touchpad scrolling that keeps the
-  fractions of a wheel notch, AV1 and AV2 decoders reported usable again, and the AV1 picture on
-  screens wider than about 2300 px.
+- **See what your session is doing.** Type `+sdl-info` under *Extra arguments* (or press the
+  overlay key) and the remote desktop shows, over the picture, which client you run on the left
+  and the live numbers on the right: codec, frames per second, decode time, size, bandwidth,
+  round trip, sound. Off by default; showing it never changes the session size.
+- **The touchpad scrolls smoothly.** Small, slow touchpad scrolls used to be lost; now they add up.
+- **AV1 and AV2 are offered again,** and an AV1 session on a very wide screen (over about
+  2300 pixels) shows its picture instead of staying black.
+- Under the hood: the bundled FreeRDP client is release 20261114.3 (was 20261111.4).
 
 ## 20261112.2
 
