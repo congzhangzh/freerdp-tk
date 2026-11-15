@@ -15,8 +15,9 @@
 #            commit the same way, tag it and start release.yml (a GITHUB_TOKEN tag starts
 #            none either). Anything else since the tag: pushed, not tagged; that release
 #            waits for 聪哥's go.
-# A release that is pinned already, or that carries the very client files pinned now (a
-# kit round that changed only its pages), does nothing. Main moving meanwhile stops the push.
+# A release that is pinned already, or that carries the FreeRDP version pinned now (the
+# client file names carry it; the kit's archives are rebuilt each round, so their hashes
+# differ even then), does nothing. Main moving meanwhile stops the push.
 name: client-bump
 
 on:
@@ -65,7 +66,7 @@ jobs:
           python3 scripts/bundle_client.py --pin "$RELEASE"
           if python3 scripts/client_bump.py same-client "$RUNNER_TEMP/client.lock.before"; then
             git checkout -- client.lock  # a kit round that changed only pages: not a release here
-            echo "rdp-release-kit $RELEASE carries the same client files as $pinned: nothing to do." \
+            echo "rdp-release-kit $RELEASE carries the client of $pinned, FreeRDP $FREERDP: nothing to do." \
               >> "$GITHUB_STEP_SUMMARY"
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0

@@ -119,13 +119,17 @@ def test_a_notes_line_by_hand_is_not_client_only(repo):
     assert client_bump.client_only()[0] is False
 
 
-def test_a_kit_release_with_the_same_client_files_is_no_bump(tmp_path):
-    """Names and SHA-256 decide, not the release line: a page-only kit round carries
-    the client freerdp-tk has already."""
-    files = "aa  sdl3-freerdp-20261114.3-linux-x86_64.tar.xz\nbb  sdl3-freerdp-20261114.3-win.zip\n"
-    old, same, new = tmp_path / "old", tmp_path / "same", tmp_path / "new"
-    old.write_text("# pins\n\n# release 20261115.3\n" + files)
-    same.write_text("# pins\n\n# release 20261115.4\n" + files)
-    new.write_text("# pins\n\n# release 20261115.5\n" + files.replace("aa", "cc"))
-    assert client_bump.same_client(old, same)
-    assert not client_bump.same_client(old, new)
+def test_a_kit_release_with_the_same_client_is_no_bump(tmp_path):
+    """The names carry the FreeRDP version and decide; the hashes do not: the kit
+    rebuilds its archives every round, and they differ for the same client (a page-only
+    kit round published 20261115.3, the same FreeRDP as 20261115.2)."""
+    def lock(path, release, version, digest):
+        path.write_text(f"# pins\n\n# release {release}\n" + "".join(
+            f"{digest}{n}  sdl3-freerdp-{version}-{p}\n"
+            for n, p in enumerate(["linux-x86_64.tar.xz", "windows-x86_64.zip"])))
+        return path
+    old = lock(tmp_path / "old", "20261115.7", "20261115.1", "aa")
+    rebuilt = lock(tmp_path / "rebuilt", "20261115.8", "20261115.1", "bb")
+    newer = lock(tmp_path / "newer", "20261115.9", "20261115.2", "cc")
+    assert client_bump.same_client(old, rebuilt)  # same version, different hashes
+    assert not client_bump.same_client(old, newer)

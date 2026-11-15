@@ -1,7 +1,7 @@
 """The plain-Python steps of .github/workflows/client-bump.yml: a green kit release
 reaches freerdp-tk without a person.
 
-    python scripts/client_bump.py same-client OLD_LOCK    # exit 0: client.lock pins the same files
+    python scripts/client_bump.py same-client OLD_LOCK    # exit 0: client.lock pins the same client
     python scripts/client_bump.py notes RELEASE FREERDP   # the Unreleased "Under the hood" line
     python scripts/client_bump.py client-only             # exit 0: only bumps since the last tag
     python scripts/client_bump.py next-tag                # prints yyyymmdd.N
@@ -36,10 +36,13 @@ BUMP_FILES = {"client.lock", "src/freerdp_tk/RELEASE_NOTES.md"}
 
 
 def same_client(old: Path, new: Path) -> bool:
-    """The two locks pin the same client files, names and SHA-256: a kit release that
-    changed only its pages (or its demos) carries the client freerdp-tk has, and must
-    not make a freerdp-tk release (rel-rdp-g1, 2026-11-15)."""
-    return bundle_client.read_lock(old) == bundle_client.read_lock(new)
+    """The two locks pin the same client: the same file names, which carry the FreeRDP
+    version (sdl3-freerdp-<version>-<platform>). Not the SHA-256s: the kit builds its
+    archives again every round, not byte for byte the same, so a round that changed
+    only its pages or demos has new hashes for the very client freerdp-tk has, and
+    must not make a freerdp-tk release (20261115.3 was one, rel-rdp-g1, 2026-11-15).
+    A rebuild of one FreeRDP version with other libraries waits for the next version."""
+    return set(bundle_client.read_lock(old)) == set(bundle_client.read_lock(new))
 
 
 def with_bump(text: str, release: str, freerdp: str) -> str:
