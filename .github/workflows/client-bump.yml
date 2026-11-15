@@ -1,0 +1,166 @@
+# Takes a green rdp-release-kit release into freerdp-tk without a person (聪哥, 2026-11-15).
+#
+# The kit sends repository_dispatch "kit-release" (client_payload.release = its tag,
+# client_payload.freerdp = the FreeRDP version) only after every kit job, demos
+# included, is green. That kit round is the real connect with this client: its
+# freerdp-tk demo logs in to a server. Here the tests connect only to a closed local
+# port (tests/test_real_client.py), no server, so this must never be sent for a kit
+# release that is not fully green.
+#
+#   prepare  pin the release in client.lock, put "Under the hood" under ## Unreleased
+#   check    the whole suite in ubuntu:rolling, with the new client as the bundled one
+#   land     push to main; test.yml on Linux, Windows, macOS (started here: a push made
+#            with GITHUB_TOKEN starts no workflow). Then, only for a client-only update
+#            (nothing but bumps since the last dated tag): date the notes, test that
+#            commit the same way, tag it and start release.yml (a GITHUB_TOKEN tag starts
+#            none either). Anything else since the tag: pushed, not tagged; that release
+#            waits for 聪哥's go.
+# A release that is pinned already, or that carries the very client files pinned now (a
+# kit round that changed only its pages), does nothing. Main moving meanwhile stops the push.
+name: client-bump
+
+on:
+  repository_dispatch:
+    types: [kit-release]
+  workflow_dispatch:  # by hand, the same two values
+    inputs:
+      release:
+        description: rdp-release-kit tag, yyyymmdd.N
+        required: true
+      freerdp:
+        description: FreeRDP version of that release, yyyymmdd.N
+        required: true
+
+concurrency:
+  group: client-bump
+  cancel-in-progress: false
+
+env:
+  RELEASE: ${{ github.event.client_payload.release || inputs.release }}
+  FREERDP: ${{ github.event.client_payload.freerdp || inputs.freerdp }}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.pin.outputs.changed }}
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - id: pin
+        run: |
+          for v in "$RELEASE" "$FREERDP"; do
+            [[ "$v" =~ ^[0-9]{8}\.[0-9]+$ ]] || { echo "::error::not a yyyymmdd.N version: '$v'"; exit 1; }
+          done
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          pinned=$(cd scripts && python3 -c 'import bundle_client; print(bundle_client.lock_release())')
+          if [ "$pinned" = "$RELEASE" ]; then
+            echo "rdp-release-kit $RELEASE is pinned already: nothing to do." >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cp client.lock "$RUNNER_TEMP/client.lock.before"
+          python3 scripts/bundle_client.py --pin "$RELEASE"
+          if python3 scripts/client_bump.py same-client "$RUNNER_TEMP/client.lock.before"; then
+            git checkout -- client.lock  # a kit round that changed only pages: not a release here
+            echo "rdp-release-kit $RELEASE carries the same client files as $pinned: nothing to do." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/client_bump.py notes "$RELEASE" "$FREERDP"
+          git diff
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - if: steps.pin.outputs.changed == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: bump
+          path: |
+            client.lock
+            src/freerdp_tk/RELEASE_NOTES.md
+
+  check:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    container: ubuntu:rolling
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/download-artifact@v6
+        with:
+          name: bump
+      # As test.yml's linux job, then the real-client test once more with the new
+      # client where a wheel carries it (find_clients takes it first). Not the whole
+      # suite that way: its window tests expect a source checkout, with no client of its
+      # own, and would start the real one against their made-up hosts.
+      - name: Install Python, Tk, keyring, pytest, Xvfb, xdotool, the FreeRDP SDL client, D-Bus and GNOME Keyring
+        run: |
+          apt-get update -q
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+            ca-certificates python3 python3-tk python3-keyring python3-pytest xvfb xauth xdotool \
+            freerdp3-sdl git dbus gnome-keyring libpulse0
+      - name: The whole suite, as test.yml runs it
+        run: |
+          mkdir -m 700 -p "$XDG_RUNTIME_DIR"
+          xvfb-run -a -s "-screen 0 1400x1000x24" dbus-run-session -- sh -c '
+            eval "$(printf ci | gnome-keyring-daemon --unlock --components=secrets)"
+            python3 -m pytest -v -rs'
+        env:
+          PYTHONPATH: src
+          XDG_RUNTIME_DIR: /tmp/xdg
+          FREERDP_TK_REAL_KEYRING: "1"
+      - name: The real-client test with the new client, as the wheels will carry it
+        run: |
+          python3 scripts/client_bump.py unpack src/freerdp_tk/client
+          xvfb-run -a -s "-screen 0 1400x1000x24" python3 -m pytest -v -rs tests/test_real_client.py \
+            | tee real.log
+          ! grep -q skipped real.log  # a skip would mean the new client did not run
+        env:
+          PYTHONPATH: src
+          XDG_RUNTIME_DIR: /tmp/xdg
+
+  land:
+    needs: [prepare, check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # push to main, push the tag
+      actions: write   # start test.yml and release.yml
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0  # the dated tags, for client-only and the next tag
+      - uses: actions/download-artifact@v6
+        with:
+          name: bump
+      - name: Push the bump to main, then test it on every system
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add client.lock src/freerdp_tk/RELEASE_NOTES.md
+          git commit -m "Bundle the client of rdp-release-kit $RELEASE (FreeRDP $FREERDP)"
+          git push origin HEAD:main  # refused when main moved since prepare: nothing lost
+          echo "Pushed $(git rev-parse --short HEAD): rdp-release-kit $RELEASE (FreeRDP $FREERDP)." \
+            >> "$GITHUB_STEP_SUMMARY"
+          scripts/dispatch_and_wait.sh test.yml "$(git rev-parse HEAD)"
+      - name: Client-only? Then date the notes, test that commit, tag it and release it
+        run: |
+          if ! why=$(python3 scripts/client_bump.py client-only); then
+            echo "Not tagged: $why. That release waits for 聪哥's go." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tag=$(python3 scripts/client_bump.py next-tag)
+          python3 scripts/client_bump.py date-notes "$tag"
+          git commit -am "Release notes: $tag"
+          git push origin HEAD:main
+          scripts/dispatch_and_wait.sh test.yml "$(git rev-parse HEAD)"
+          git tag -a "$tag" -m "freerdp-tk $tag: the client of rdp-release-kit $RELEASE (FreeRDP $FREERDP)"
+          git push origin "$tag"
+          gh workflow run release.yml --ref "$tag" -f tag="$tag"
+          echo "Tagged $tag ($why) and started release.yml." >> "$GITHUB_STEP_SUMMARY"

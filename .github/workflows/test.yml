@@ -1,4 +1,4 @@
-# Runs the tests on every push and pull request:
+# Runs the tests on every push and pull request, and when client-bump.yml asks:
 # - linux (x64): the newest Ubuntu release (ubuntu:rolling follows new releases by
 #   itself) with its own Python, Tk and FreeRDP 3 client, in a virtual X server
 # - windows (x64) and macos (arm64): uv's Python, which includes Tk, on the
@@ -12,6 +12,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:  # client-bump.yml starts it: its GITHUB_TOKEN push starts no push run
 
 jobs:
   linux:
@@ -23,7 +24,7 @@ jobs:
         run: |
           apt-get update -q
           DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
-            python3 python3-tk python3-keyring python3-pytest xvfb xauth xdotool freerdp3-sdl \
+            python3 python3-tk python3-keyring python3-pytest xvfb xauth xdotool freerdp3-sdl git \
             dbus gnome-keyring
       # The keyring unlocked with a throwaway password. XDG_RUNTIME_DIR is short
       # on purpose: its keyring/control socket must fit the 108 bytes of a socket path.

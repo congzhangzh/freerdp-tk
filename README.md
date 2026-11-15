@@ -146,6 +146,8 @@ Only a tag of this form starts the release; the tests run on every push to `main
 
 The workflow builds the package, adds the client to one wheel per platform (`scripts/bundle_client.py`), checks on a runner of each platform that the wheel installs and its client starts, and then uploads them all to PyPI, with the plain wheel and the sdist. Then it makes the GitHub release, with that version's notes and the same files. The window shows the version in its title, and the notes under *About*.
 
+**A new client by itself.** When an [rdp-release-kit](https://github.com/congzhangzh/rdp-release-kit) release has passed all its checks, demos included, the kit sends a `kit-release` event, and `client-bump.yml` takes it from there: it pins that release in `client.lock` (`scripts/bundle_client.py --pin`), adds an "Under the hood" line under *Unreleased*, runs the tests, the real-client test with the new client too, and pushes to `main`, where `test.yml` runs on every platform. When nothing but such bumps has come since the last release, it goes on: it dates the notes, tests that commit too, tags the next `yyyymmdd.index` and starts the release. Anything else waiting since the last release (a change to the window, say) keeps the tag for a person. It can be started by hand too (*Actions → client-bump → Run workflow*, with the kit release and its FreeRDP version).
+
 To move to a newer client, pin a release of rdp-release-kit and commit `client.lock`:
 
 ```bash

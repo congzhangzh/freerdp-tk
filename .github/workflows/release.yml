@@ -6,11 +6,19 @@
 # never pushed to main has no such run, so its tag does not publish. Nor does a tag
 # whose release notes (src/freerdp_tk/RELEASE_NOTES.md) have no section of its own;
 # that section becomes the GitHub release, with the wheels, once PyPI has them.
+# client-bump.yml starts it by workflow_dispatch on the tag (`--ref <tag> -f tag=<tag>`):
+# a tag it pushes with GITHUB_TOKEN starts no workflow. Its test.yml runs are
+# workflow_dispatch runs too, so the gate takes either event, on main, on that commit.
 name: release
 
 on:
   push:
     tags: ["[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the dated tag to release, yyyymmdd.N; run with --ref set to that tag
+        required: true
 
 env:
   # uv's own Python builds include Tk; the runners' system Pythons may not.
@@ -25,6 +33,15 @@ jobs:
       actions: read
       contents: read
     steps:
+      - name: Started by hand or by client-bump.yml, it runs on that dated tag only
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG" =~ ^[0-9]{8}\.[0-9]+$ || "$GITHUB_REF" != "refs/tags/$TAG" ]]; then
+            echo "::error::run it on the tag itself: --ref <yyyymmdd.N> -f tag=<the same>"
+            exit 1
+          fi
       - uses: actions/checkout@v5
       - name: Wait for test.yml on this commit on main, and require success
         env:
@@ -32,9 +49,11 @@ jobs:
         run: |
           sha=$(git rev-parse HEAD)
           for i in $(seq 120); do  # 30 min at most: test.yml takes about 5
-            run=$(gh run list --workflow test.yml --commit "$sha" --branch main --event push \
-                    --limit 1 --json databaseId,status,conclusion \
-                    -q '.[0] // empty | "\(.databaseId) \(.status) \(.conclusion)"') || run=""  # retried
+            # a push to main, or client-bump.yml's workflow_dispatch on main
+            run=$(gh run list --workflow test.yml --commit "$sha" --branch main --limit 20 \
+                    --json databaseId,status,conclusion,event \
+                    -q '[.[] | select(.event == "push" or .event == "workflow_dispatch")][0] // empty
+                        | "\(.databaseId) \(.status) \(.conclusion)"') || run=""  # retried
             read -r id status conclusion <<< "$run"
             echo "test run of $sha on main: ${run:-none yet}"
             if [ "$status" = completed ]; then
