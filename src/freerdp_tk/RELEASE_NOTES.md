@@ -12,10 +12,10 @@ before anything is published. The window shows these notes under *About*.
   settings have them: Right Alt + Right Shift + I as freerdp-tk sets them up (Right Option +
   Right Shift + I on a Mac). It needs a client that knows the overlay, as the bundled one does;
   with an older one, Connect says so instead of failing.
-- **The graphics codec you pick is the one you get.** With *AV1* picked, a server that prefers
-  AV2 still chose AV2, since the bundled client kept offering both; the same with *AVC420*,
-  *AVC444*, *RFX* or *progressive* against a server that prefers AV1 or AV2. Now the client
-  offers only the codec you pick; with *(default)* the server still chooses.
+- **The graphics codec you pick is the one you get.** Picking *AV1* used to get you AV2 from a
+  server that prefers it, because the bundled client still offered both; the same happened with
+  *AVC420*, *AVC444*, *RFX* or *progressive*. Now the client offers only the codec you pick;
+  with *(default)* the server still chooses. *Show live stats* shows which one runs.
 
 ## 20261115.1
 
