@@ -88,6 +88,7 @@ def prefs(home):
 def test_the_stats_keys_are_the_ones_the_client_reads(prefs, monkeypatch):
     """Not a fixed text: the user's own settings file may keep Right Shift alone, or
     name other keys; what it leaves out is the client's default."""
+    monkeypatch.setattr(app, "IS_MAC", False)  # the PC's key names; the Mac's below
     assert prefs(None) == "Right Shift + I"  # no file: the client's defaults
     assert prefs({"SDL_Info": "SDL_SCANCODE_S"}) == "Right Shift + S"
     app.client_prefs_file().unlink()
@@ -110,8 +111,9 @@ def test_no_stats_keys_when_they_cannot_be_told(prefs, content):
     assert prefs(content) is None
 
 
-def test_the_stats_keys_in_french(prefs):
-    """On French keyboards Right Alt is labelled Alt Gr."""
+def test_the_stats_keys_in_french(prefs, monkeypatch):
+    """On French keyboards Right Alt is labelled Alt Gr (a PC's; a Mac's says Option)."""
+    monkeypatch.setattr(app, "IS_MAC", False)
     try:
         i18n.use("fr")
         app.move_client_hotkeys()
