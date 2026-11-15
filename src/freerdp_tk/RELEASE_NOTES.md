@@ -4,6 +4,12 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
+## 20261115.4
+
+- Nothing changes in the window. freerdp-tk now updates itself only when its bundled FreeRDP
+  changes; 20261115.3 was such an update with nothing new in it.
+- Under the hood: the bundled client stays FreeRDP 20261115.1 (rdp-release-kit 20261115.8).
+
 ## 20261115.3
 
 - Under the hood: the bundled client is FreeRDP 20261115.1 (rdp-release-kit 20261115.8).
