@@ -4,6 +4,14 @@ Newest first, one section per release tag `yyyymmdd.index`, the same version as 
 Before a tag, rename "Unreleased" to that version: a release without its section stops
 before anything is published. The window shows these notes under *About*.
 
+## 20261115.1
+
+- **The bundled client is FreeRDP 20261114.3** (rdp-release-kit 20261115.3; was 20261111.4):
+  the stats and info overlay (off by default: `+sdl-info` under Extra arguments, or the SDL_Info
+  hotkey; client info top left, the live numbers top right), touchpad scrolling that keeps the
+  fractions of a wheel notch, AV1 and AV2 decoders reported usable again, and the AV1 picture on
+  screens wider than about 2300 px.
+
 ## 20261112.2
 
 - **A connection saved with the bundled client keeps up with upgrades.** `uvx` unpacks each
