@@ -33,7 +33,9 @@ COMMIT_FILE = Path(__file__).with_name("COMMIT")  # written by release.yml befor
 MAX_MANIFEST = 1 << 20  # a MANIFEST is a few kB; anything far bigger is not one
 SHA1 = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
-TITLE = re.compile(r"^sdl3-freerdp (\S+) for (.+?), built (\S+)\s*$")
+# "sdl3-freerdp 20261114.3 for Linux x86_64, built ..." on Linux and macOS,
+# "sdl-freerdp.exe 20261115.4 for Windows x86_64, built ..." on Windows: any program name
+TITLE = re.compile(r"^\S+ (\d{8}\.\d+) for (.+?), built (\S+)\s*$")
 KIT_LINE = re.compile(r"^kit:\s+rdp-release-kit((?:\s+\S+)*)\s*$")
 RELEASE = re.compile(r"^\d{8}\.\d+$")
 UPSTREAM_LINE = re.compile(r"^freerdp-upstream:\s+(\S+)\s+([0-9a-f]{40})\s+\+(\d+)"
@@ -99,7 +101,7 @@ def parse_manifest(text: str) -> Manifest:
             m.sources.append(Source(words[0], words[1], words[2] if len(words) > 2 else "", url))
         elif match := TITLE.match(line):
             m.release, m.platform, m.built = match.groups()
-        elif line.startswith("build environment:"):
+        elif line.startswith(("build environment:", "toolchain:")):  # Windows: toolchain
             m.environment = line.partition(":")[2].strip()
         elif match := KIT_LINE.match(line):  # "<commit>"; a release too, should it come
             for word in match[1].split():

@@ -51,6 +51,26 @@ def test_the_new_manifest():
     assert about.parse_manifest(NEW.replace(" 2026-11-13", "")).upstream[3] is None  # no date
 
 
+WINDOWS = """sdl-freerdp.exe 20261115.4 for Windows x86_64, built 2026-11-15
+toolchain: llvm-mingw 20261020 (clang, libc++, UCRT)
+
+sources (sources.lock):
+  freerdp    20261115.4 5be282e0a95f2e5040c063b2fb2a6ba60c3075ed
+  sdl3       3.4.18   9c75cf16330322c217dedd2e0609f1124f1b54b8633e763467b4684d0f4334a3
+"""
+
+
+def test_the_windows_manifest():
+    """The Windows client's MANIFEST (kit 20261115.10, as it is in the zip) names its
+    program sdl-freerdp.exe and has a toolchain line: release run 44096546539 stopped
+    on it."""
+    m = about.parse_manifest(WINDOWS)
+    assert (m.release, m.platform, m.built) == ("20261115.4", "Windows x86_64", "2026-11-15")
+    assert m.environment == "llvm-mingw 20261020 (clang, libc++, UCRT)"
+    assert m.source("freerdp").commit == "5be282e0a95f2e5040c063b2fb2a6ba60c3075ed"
+    assert about.parse_manifest(WINDOWS.replace("\n", "\r\n")).release == "20261115.4"
+
+
 def test_an_old_manifest_still_reads():
     m = about.parse_manifest(OLD)
     assert m.release == "20261114.3" and m.kit_commit is None and m.upstream is None

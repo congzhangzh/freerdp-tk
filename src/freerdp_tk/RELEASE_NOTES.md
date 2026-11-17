@@ -5,7 +5,7 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
-## 20261117.1
+## 20261117.2
 
 - **About tells exactly what you run.** Each version comes with its commit, a link to that
   very change: freerdp-tk's, the bundled FreeRDP's and its upstream base, and the kit release
