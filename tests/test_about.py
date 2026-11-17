@@ -155,7 +155,8 @@ def test_about_with_the_bundled_client(make_ui, home, monkeypatch, tmp_path):
     assert "(2026-11-13) + 59 of our commits" in labels(window)
     texts = labels(window)
     assert f"freerdp-tk {app.__version__}" in texts and "bundled with freerdp-tk" in texts
-    assert "~/wheel/client/sdl-freerdp" in texts  # the home folder as ~
+    shown = str(Path("~", "wheel", "client", "sdl-freerdp"))  # \\ on Windows
+    assert shown in texts  # the home folder as ~
     click(ui, button(window, "Details"))
     assert "sdl3" in labels(window) and "freerdp_tk" not in labels(window)
     assert f"sha256 {SDL[:12]}" in labels(window)  # a tarball digest: no commit, no link
@@ -165,7 +166,7 @@ def test_about_with_the_bundled_client(make_ui, home, monkeypatch, tmp_path):
     assert f"commit 0213f32{'1' * 33}" in report and f"commit {FREERDP}" in report
     assert f"rdp-release-kit 20261117.2 (commit {KIT})" in report
     assert f"based on FreeRDP master {UPSTREAM} (2026-11-13) + 59 of our commits" in report
-    assert str(home) not in report and "client: ~/wheel/client/sdl-freerdp (bundled)" in report
+    assert str(home) not in report and f"client: {shown} (bundled)" in report
     window.destroy()
 
 
