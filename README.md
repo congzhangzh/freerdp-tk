@@ -1,7 +1,15 @@
 # freerdp-tk
 
-A small launcher window for the [FreeRDP](https://www.freerdp.com/) 3 SDL client, with the client inside.
-It runs on Linux, Windows and macOS: `uvx freerdp-tk` brings everything it needs, the client, Python with Tkinter and the [keyring](https://pypi.org/project/keyring/) package.
+**Remote desktops, low cost and high performance: [FreeRDP](https://www.freerdp.com/) 3 on Linux, Windows and macOS, in one command.**
+
+```bash
+uvx freerdp-tk
+```
+
+- **Low cost:** free and open source (Apache-2.0), no account, no subscription. The wheel brings the FreeRDP client, Python with Tkinter and the keyring package, so there is nothing else to install.
+- **High performance:** FreeRDP 3's SDL client, with AV1 and AV2 (H.264 through the system on macOS and Windows). Tick *Show live stats* and the session shows its codec, frames per second, bandwidth and round trip.
+- **Made for everyday use:** saved connections, passwords in the system keyring, SSH tunnels built in, several sessions at once.
+- **Or in a browser:** [FreeRDP Web](https://congzhangzh.github.io/freerdp-web/) runs the same FreeRDP, compiled to WebAssembly, with nothing to install.
 
 ![freerdp-tk: saved connections on the left, connection settings on the right, the generated command line, and the log of a running session](https://raw.githubusercontent.com/congzhangzh/freerdp-tk/main/docs/screenshot.png)
 
