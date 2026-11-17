@@ -333,7 +333,7 @@ def test_about_shows_the_version_and_the_release_notes(make_ui):
 
     walk(ui.about)
     assert f"freerdp-tk {app.__version__}" in labels
-    assert any(text.startswith("FreeRDP client: ") for text in labels)
+    assert "Client in use" in labels and "Runs on" in labels
     notes = app.show_text(ui.root, "Release notes", app.release_notes())
     text = next(c for c in notes.winfo_children()[0].winfo_children()
                 if c.winfo_class() == "Text").get("1.0", "end")

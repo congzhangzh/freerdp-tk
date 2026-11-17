@@ -5,6 +5,14 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- **About tells exactly what you run.** Each version comes with its commit, a link to that
+  very change: freerdp-tk's, the bundled FreeRDP's and its upstream base, and the kit release
+  the client came from. The client in use shows as bundled or installed; an installed one says
+  its own version. *Details* lists what the bundled client was built from, and *Copy* puts all
+  of it on the clipboard for a bug report, with your home folder as `~`.
+
 ## 20261115.6
 
 - Under the hood: the bundled client is FreeRDP 20261115.4 (rdp-release-kit 20261115.10).

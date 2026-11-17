@@ -161,7 +161,11 @@ def main() -> None:
         data = fetch(f"{KIT}/{release}/{name}")
         if hashlib.sha256(data).hexdigest() != lock[name]:
             sys.exit(f"{name}: not the file client.lock pins")
-        done = bundle(args.wheel, tag, archive_files(data, name), args.wheel.parent)
+        files = archive_files(data, name)
+        # the kit release, which MANIFEST cannot name (the kit picks it after the build):
+        # About shows it, with a link to its page
+        files["KIT_RELEASE"] = f"{release}\n".encode()
+        done = bundle(args.wheel, tag, files, args.wheel.parent)
         print(f"{done.name}: {done.stat().st_size / 1048576:.1f} MiB")
 
 

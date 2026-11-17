@@ -81,6 +81,21 @@ def backend():
     raise CredentialError(f"no system keyring found (keyring offers {offered}).{hint}")
 
 
+def describe() -> str:
+    """keyring's version and the backend it uses, for About. Asks keyring, so on the
+    worker thread, as every keyring call."""
+    from importlib.metadata import PackageNotFoundError, version
+    try:
+        found = f"keyring {version('keyring')}"
+    except PackageNotFoundError:
+        return "keyring: not installed"
+    try:
+        b = backend()
+    except CredentialError as e:
+        return f"{found}: {e}"
+    return f"{found}, {_name(b).removeprefix('keyring.backends.')}"
+
+
 def problem() -> str:
     """Why the system keyring cannot be used; "" when it can."""
     try:

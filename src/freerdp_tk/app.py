@@ -39,7 +39,7 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, font, messagebox, simpledialog, ttk
 
-from freerdp_tk import __version__, credentials, i18n
+from freerdp_tk import __version__, about, credentials, i18n
 from freerdp_tk.i18n import tr
 from freerdp_tk.supervise import EXIT_MARK, GRACE
 
@@ -724,34 +724,270 @@ def show_text(root: tk.Tk, title: str, text: str):
     return top
 
 
-def show_about(root: tk.Tk, client: str) -> tk.Toplevel:
-    """Who this is: the version, the client it would start, Python and Tk, the
-    license, and the way to the release notes and the project page."""
-    top = tk.Toplevel(root)
-    top.title(tr("About"))
-    top.transient(root)
-    top.resizable(False, False)
-    frame = ttk.Frame(top, padding=12)
-    frame.pack(fill="both", expand=True)
-    title = font.nametofont("TkDefaultFont").copy()
-    title.configure(size=title.cget("size") + 4, weight="bold")
-    top.title_font = title  # keep it alive with the window
-    ttk.Label(frame, text=f"{APP} {__version__}", font=title).pack(anchor="w")
-    for line in (tr("FreeRDP client: {client}", client=client),
-                 tr("Python {python}, Tk {tk}", python=platform.python_version(),
-                    tk=root.tk.call("info", "patchlevel")),
-                 tr("License: {license}", license="Apache-2.0"), PROJECT):
-        ttk.Label(frame, text=line).pack(anchor="w", pady=(4, 0))
-    buttons = ttk.Frame(frame)
-    buttons.pack(fill="x", pady=(12, 0))
-    ttk.Button(buttons, text=tr("Release notes"),
-               command=lambda: show_text(root, tr("Release notes"), release_notes())
-               ).pack(side="left")
-    ttk.Button(buttons, text=tr("Project page"),
-               command=lambda: webbrowser.open(PROJECT)).pack(side="left", padx=4)
-    ttk.Button(buttons, text=tr("Close"), command=top.destroy).pack(side="right")
-    top.bind("<Escape>", lambda _: top.destroy())
-    return top
+LINK = "#2563eb"  # readable on the light and the dark themes
+
+
+def short(sha: str) -> str:
+    return sha[:7]
+
+
+def version_date(version: str) -> str | None:
+    """The day of a dated version (20261115.6 -> 2026-11-15); None for any other."""
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})\.\d+$", version)
+    return "-".join(m.groups()) if m else None
+
+
+def client_says(client: str) -> str | None:
+    """What a client says it is (/version), its own words; None when it says nothing.
+    Starts the client, so never on the Tk thread."""
+    try:
+        done = subprocess.run([client, "/version"], capture_output=True, text=True,
+                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
+    return " / ".join(lines[:2]) or None
+
+
+class About(tk.Toplevel):
+    """Who this is and what it runs: freerdp-tk's version and commit, the client in
+    use (bundled or installed; for the bundled one, from MANIFEST, its FreeRDP release
+    and commit, the kit release it came from, and under Details what it was built from),
+    and what the window runs on. Each commit links to its page; Copy gives all of it as
+    text, the home folder as ~. What takes time (git, the client's /version, keyring)
+    is asked off the Tk thread and filled in when it comes; what is not known is left
+    out, never guessed."""
+
+    def __init__(self, root: tk.Tk, client: str | None, core_fonts: bool | None = None):
+        super().__init__(root)
+        self.root = root
+        self.title(tr("About"))
+        self.transient(root)
+        self.resizable(False, False)
+        self.client = client
+        self.bundled = bool(client) and is_ours(client)
+        self.manifest = about.read_manifest(client) if client else None
+        self.commit: str | None = None
+        self.says: str | None = None
+        self.keyring_text: str | None = None
+        self.core_fonts = core_fonts
+        frame = ttk.Frame(self, padding=12)
+        frame.pack(fill="both", expand=True)
+        heading = font.nametofont("TkDefaultFont").copy()
+        heading.configure(size=heading.cget("size") + 4, weight="bold")
+        self.heading_font = heading  # keep it alive with the window
+        ttk.Label(frame, text=f"{APP} {__version__}", font=heading).pack(anchor="w")
+        ttk.Label(frame, text=tr("Remote desktops, low cost and high performance.")).pack(
+            anchor="w")
+        when = version_date(__version__)
+        ttk.Label(frame, text=tr("released {date}", date=when) if when
+                  else tr("development build"), foreground="gray").pack(anchor="w")
+        self.grid_frame = ttk.Frame(frame)
+        self.grid_frame.pack(fill="x", pady=(8, 0))
+        self.grid_frame.columnconfigure(1, weight=1)
+        self.details = ttk.Frame(frame)
+        self.details_shown = False
+        buttons = ttk.Frame(frame)
+        buttons.pack(side="bottom", fill="x", pady=(12, 0))
+        self.details_button = ttk.Button(buttons, text=tr("Details"), command=self._toggle_details)
+        self.details_button.pack(side="left")
+        ttk.Button(buttons, text=tr("Release notes"),
+                   command=lambda: show_text(root, tr("Release notes"), release_notes())
+                   ).pack(side="left", padx=4)
+        ttk.Button(buttons, text=tr("Copy"), command=self.copy).pack(side="left")
+        ttk.Button(buttons, text=tr("Close"), command=self.destroy).pack(side="right")
+        self.bind("<Escape>", lambda _: self.destroy())
+        self._fill()
+        self._ask()
+
+    # ---- the rows ----------------------------------------------------------
+
+    def _row(self, label: str, *parts):
+        """One row: a gray label, then texts and (text, url) links side by side."""
+        row = self.grid_frame.grid_size()[1]
+        ttk.Label(self.grid_frame, text=label, foreground="gray").grid(
+            row=row, column=0, sticky="nw", padx=(0, 10), pady=1)
+        cell = ttk.Frame(self.grid_frame)
+        cell.grid(row=row, column=1, sticky="w", pady=1)
+        for part in parts:
+            if isinstance(part, tuple):
+                link_label(cell, *part).pack(side="left", padx=(0, 6))
+            elif part:
+                ttk.Label(cell, text=part).pack(side="left", padx=(0, 6))
+
+    def _section(self, title: str):
+        row = self.grid_frame.grid_size()[1]
+        ttk.Label(self.grid_frame, text=title, font="TkHeadingFont").grid(
+            row=row, column=0, columnspan=2, sticky="w", pady=(8, 2))
+
+    def _fill(self):
+        for child in self.grid_frame.winfo_children():
+            child.destroy()
+        self._row(tr("Commit"), (short(self.commit), about.commit_link(self.commit))
+                  if self.commit else tr("not known"))
+        self._row(tr("License"), "Apache-2.0")
+        self._row(tr("Project"), (PROJECT, PROJECT))
+        self._section(tr("Client in use"))
+        if not self.client:
+            self._row(tr("Program"), tr("<no client found>"))
+        else:
+            self._row(tr("Program"), about.home_as_tilde(self.client))
+            self._row(tr("Kind"), tr("bundled with freerdp-tk") if self.bundled
+                      else tr("installed on this computer"))
+            m = self.manifest
+            if m:
+                freerdp = m.source("freerdp")
+                link = freerdp.commit_link() if freerdp else None
+                self._row("FreeRDP", m.release or (freerdp.version if freerdp else ""),
+                          (short(freerdp.commit), link) if freerdp and freerdp.commit and link
+                          else (short(freerdp.commit) if freerdp and freerdp.commit else ""))
+                if m.upstream:
+                    branch, sha, ahead, date = m.upstream
+                    self._row(tr("Based on"), f"FreeRDP {branch}",
+                              (short(sha), about.upstream_link(m)),
+                              (f"({date}) " if date else "")
+                              + tr("+ {count} of our commits", count=ahead))
+                if m.kit_release or m.kit_commit:
+                    page, commit = about.kit_links(m)
+                    self._row(tr("From"), (f"rdp-release-kit {m.kit_release}", page)
+                              if m.kit_release else "rdp-release-kit",
+                              (short(m.kit_commit), commit) if m.kit_commit else "")
+                if m.built:
+                    self._row(tr("Built"), tr("{date} for {platform}", date=m.built,
+                                              platform=m.platform or "?"))
+            elif not self.bundled:
+                self._row(tr("Says"), self.says or tr("(asking the client{dots})",
+                                                      dots=GLYPHS["dots"]))
+        self._section(tr("Runs on"))
+        self._row("Python", platform.python_version())
+        tk_text = str(self.root.tk.call("info", "patchlevel"))
+        if self.core_fonts is not None and not (IS_WIN or IS_MAC):
+            tk_text += " " + (tr("(X core fonts, no Xft)") if self.core_fonts else tr("(with Xft)"))
+        self._row("Tk", tk_text)
+        self._row("keyring", self.keyring_text or tr("(asking{dots})", dots=GLYPHS["dots"]))
+
+    def _toggle_details(self):
+        self.details_shown = not self.details_shown
+        if not self.details_shown:
+            self.details.pack_forget()
+            return
+        for child in self.details.winfo_children():
+            child.destroy()
+        sources = self.manifest.client_sources if self.manifest else []
+        ttk.Label(self.details, text=tr("Built from") if sources
+                  else tr("Built from: not known for this client"),
+                  font="TkHeadingFont").grid(row=0, column=0, columnspan=4, sticky="w",
+                                             pady=(8, 2))
+        for row, src in enumerate(sources, 1):
+            ttk.Label(self.details, text=src.name).grid(row=row, column=0, sticky="w",
+                                                        padx=(0, 10))
+            ttk.Label(self.details, text=src.version).grid(row=row, column=1, sticky="w",
+                                                           padx=(0, 10))
+            link = src.commit_link()
+            if link:
+                link_label(self.details, short(src.commit), link).grid(row=row, column=2,
+                                                                       sticky="w", padx=(0, 10))
+            elif src.hash:
+                ttk.Label(self.details, text=f"sha256 {src.hash[:12]}" if src.digest
+                          else short(src.hash) if src.commit else src.hash[:12],
+                          foreground="gray").grid(row=row, column=2,
+                                                                      sticky="w", padx=(0, 10))
+            if src.url:
+                link_label(self.details, about.url_name(src.url), src.url).grid(
+                    row=row, column=3, sticky="w")
+        self.details.pack(fill="x", before=self.details_button.master)
+
+    # ---- what takes time ---------------------------------------------------
+
+    def _ask(self):
+        """git and the client's /version on a thread of their own; keyring on its worker,
+        through ask_keyring (App passes its own)."""
+        answers: queue.Queue = queue.Queue()
+        client = self.client if self.client and not self.bundled and not self.manifest else None
+
+        def work():
+            answers.put(("commit", about.build_commit()))
+            if client:
+                answers.put(("says", client_says(client) or tr("nothing (it gave no version)")))
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def collect():
+            if not self.winfo_exists():
+                return
+            changed = False
+            while True:
+                try:
+                    name, value = answers.get_nowait()
+                except queue.Empty:
+                    break
+                setattr(self, name, value)
+                changed = True
+            if changed:
+                self._fill()
+            self.after(100, collect)
+
+        self.after(50, collect)
+
+    def keyring_said(self, text: str):
+        if self.winfo_exists():
+            self.keyring_text = text
+            self._fill()
+
+    # ---- Copy ---------------------------------------------------------------
+
+    def report(self) -> str:
+        """All of it as text, full commits, the home folder as ~: for a bug report."""
+        lines = [f"{APP} {__version__}" + (f" (commit {self.commit})" if self.commit else "")]
+        if not self.client:
+            lines.append("client: none found")
+        else:
+            lines.append(f"client: {self.client} ("
+                         + ("bundled" if self.bundled else "installed") + ")")
+            m = self.manifest
+            if m:
+                freerdp = m.source("freerdp")
+                lines.append(f"FreeRDP {m.release or '?'}"
+                             + (f" (commit {freerdp.commit})" if freerdp and freerdp.commit else ""))
+                if m.upstream:
+                    branch, sha, ahead, date = m.upstream
+                    lines.append(f"based on FreeRDP {branch} {sha}"
+                                 + (f" ({date})" if date else "") + f" + {ahead} of our commits")
+                if m.kit_release or m.kit_commit:
+                    lines.append(f"rdp-release-kit {m.kit_release or '?'}"
+                                 + (f" (commit {m.kit_commit})" if m.kit_commit else ""))
+                if m.built:
+                    lines.append(f"built {m.built} for {m.platform or '?'}"
+                                 + (f" ({m.environment})" if m.environment else ""))
+                for src in m.client_sources:
+                    lines.append("  " + "  ".join(x for x in (src.name, src.version, src.hash,
+                                                             src.url) if x))
+            elif self.says:
+                lines.append(f"client says: {self.says}")
+        tk_text = str(self.root.tk.call("info", "patchlevel"))
+        if self.core_fonts is not None and not (IS_WIN or IS_MAC):
+            tk_text += " (X core fonts, no Xft)" if self.core_fonts else " (with Xft)"
+        lines.append(f"Python {platform.python_version()}, Tk {tk_text}, "
+                     f"{sys.platform} {platform.machine()}")
+        if self.keyring_text:
+            lines.append(self.keyring_text)
+        return about.home_as_tilde("\n".join(lines)) + "\n"
+
+    def copy(self):
+        self.clipboard_clear()
+        self.clipboard_append(self.report())
+
+
+def link_label(parent, text: str, url: str) -> ttk.Label:
+    """Text that opens url in the browser when clicked, and only then."""
+    label = ttk.Label(parent, text=text, foreground=LINK, cursor="hand2")
+    label.url = url  # what it opens, for the tests
+    label.bind("<Button-1>", lambda _: webbrowser.open(url))
+    return label
+
+
+def show_about(root: tk.Tk, client: str | None, core_fonts: bool | None = None) -> About:
+    return About(root, client, core_fonts)
 
 
 def ask_unsaved(root: tk.Tk, question: str, changed: list[str]) -> str | None:
@@ -968,7 +1204,7 @@ class App(ttk.Frame):
     def __init__(self, root: tk.Tk):
         super().__init__(root, padding=8)
         self.root = root
-        core_fonts = use_glyphs(root)
+        core_fonts = self.core_fonts = use_glyphs(root)
         self.settings_file = config_dir() / "settings.json"
         self.settings = self._load_settings()
         code, language_note = i18n.choose(self.settings.get("language", i18n.AUTO), core_fonts)
@@ -1142,12 +1378,11 @@ class App(ttk.Frame):
                             **options)
 
     def _about(self):
-        client = self._resolve_client(self.vars["client"].get())
-        if not client:
-            client = tr("<no client found>")
-        elif self.versions.get(client):
-            client = f"{client} (FreeRDP {self.versions[client]})"
-        self.about = show_about(self.root, client)
+        self.about = show_about(self.root, self._resolve_client(self.vars["client"].get()) or None,
+                                self.core_fonts)
+        window = self.about
+        self.keyring.run(credentials.describe,
+                         lambda text, error: window.keyring_said(text or str(error)))
 
     def _language_button(self, parent) -> ttk.Menubutton:
         """The language of the window: the system's, or one chosen here, from the next start.
