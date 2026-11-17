@@ -21,6 +21,30 @@ uvx freerdp-tk
 - **Session log:** runs several sessions at once and shows each client's output.
 - **Four languages:** English, 中文 (Chinese), 日本語 (Japanese) and Français (French). The window starts in the system's language; the button beside *Clear log* picks another one, from the next start, and `FREERDP_TK_LANG=fr` sets one for a single run. The log stays in English, so it can be searched and pasted into a bug report.
 
+## The codecs, as they are
+
+| Codec | 4:4:4 | 4:2:0 | Linux | Windows | macOS |
+|---|---|---|---|---|---|
+| AV1 | yes | yes | yes | yes | yes |
+| AV2 | yes | yes | yes | yes | yes |
+| H.264 (AVC444, AVC420) | yes | yes | no: the bundled client carries no H.264 decoder | yes, through Media Foundation | yes, through VideoToolbox |
+| H.265 | — | — | not yet: no bundled client decodes it | not yet | not yet |
+
+Pick one under *Display → Graphics codec* and the client offers only that one; *(default)* lets the server choose.
+*Show live stats* shows which codec runs.
+
+## The other side
+
+[rdp-release-kit](https://github.com/congzhangzh/rdp-release-kit) is the all-in-one: the same FreeRDP as a shadow
+server for Linux, Windows and macOS hosts, xrdp packages, this client and the browser one.
+**[How to install the shadow server](docs/server.md)** on Linux, Windows and macOS.
+
+## Built on FreeRDP
+
+freerdp-tk runs [FreeRDP](https://github.com/FreeRDP/FreeRDP), the FreeRDP project's work. The bundled client
+comes from [our fork](https://github.com/congzhangzh/FreeRDP): upstream master plus our commits on their way
+upstream. *About* shows the exact upstream commit it is based on and how many commits are ours.
+
 ## Install
 
 ```bash
