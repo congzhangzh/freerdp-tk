@@ -5,6 +5,10 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- Under the hood: the bundled client is FreeRDP 20261117.6 (rdp-release-kit 20261118.1).
+
 ## 20261117.3
 
 - Under the hood: the bundled client is FreeRDP 20261117.4 (rdp-release-kit 20261117.4).
