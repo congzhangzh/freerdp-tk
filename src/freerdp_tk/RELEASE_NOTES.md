@@ -5,6 +5,17 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- **Hardware or software video decoding.** *Display* has a new *Video decoding*: *Hardware
+  first* (the default: the GPU decodes AV1, the software decoder dav1d stands in when it
+  cannot) or *Software first*. Under it, *GPU* picks which graphics card decodes, from the
+  ones the client finds (on Windows, every card with a D3D11VA AV1 decoder); *Automatic* takes
+  the first that can. The *Running* list shows what actually decodes each session, hardware
+  or software, and the card's name under the list (on Windows and macOS: the Linux client
+  decodes in software and says nothing). It needs the bundled client, FreeRDP 20261122.2 or
+  newer, for anything but the default; an older one still connects with the default.
+
 ## 20261122.2
 
 - Under the hood: the bundled client is FreeRDP 20261122.2 (rdp-release-kit 20261122.5).

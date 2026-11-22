@@ -494,7 +494,91 @@ def test_connect_says_when_the_client_has_no_live_stats(make_ui, fake_client, mo
     assert not fake_client.exists()
     monkeypatch.delenv("FAKE_NO_STATS")
     assert ui._launch("demo", v, "s3cret!") is False  # the answer is kept, not asked again
-    ui.stats.clear()
+    ui.helps.clear()
     assert ui._launch("demo", v, "s3cret!") is True
     pump(ui, fake_client.exists)
     assert "+sdl-info" in json.loads(fake_client.read_text())["stdin"].splitlines()
+
+
+NVIDIA = "0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)"
+AMD = "1 D3D11VA AMD Radeon(TM) 610M (AV1 4:2:0 decode)"
+
+
+def test_video_decoding_and_its_gpu(make_ui, fake_client, monkeypatch):
+    """Display: Video decoding (Hardware first | Software first) and the GPU under it,
+    filled from the client's /codec-list as it opens; no GPU to pick with Software first,
+    and a word when the client lists none."""
+    from freerdp_tk import app
+    monkeypatch.setenv("FAKE_DECODERS", f"{NVIDIA}\n{AMD}")
+    ui = make_ui()
+    texts = [w.cget("text") for w in widgets(ui) if w.winfo_class() == "TLabel"]
+    assert "Video decoding" in texts and "GPU" in texts
+    assert ui.gpu_box.get() == "Automatic" and str(ui.gpu_box.cget("state")) == "readonly"
+    ui._fill_gpus()  # what opening the list does
+    assert list(ui.gpu_box.cget("values")) == ["Automatic", NVIDIA, AMD]
+    assert ui.gpu_note.cget("text") == ""
+    ui.gpu_box.set(AMD)
+    ui.root.update()
+    assert ui.vars["gpu"].get() == AMD
+    assert "/codec-first:hardware:1" in ui.preview.get("1.0", "end")
+    ui.vars["decoding"].set(app.SOFTWARE_FIRST)
+    ui.root.update()
+    assert str(ui.gpu_box.cget("state")) == "disabled"
+    assert "/codec-first:software" in ui.preview.get("1.0", "end")
+    assert "/codec-first:hardware" not in ui.preview.get("1.0", "end")
+    ui.vars["decoding"].set(app.HARDWARE_FIRST)
+    ui.root.update()
+    assert str(ui.gpu_box.cget("state")) == "readonly"
+
+    monkeypatch.delenv("FAKE_DECODERS")  # a computer with no hardware decoder, as Linux here
+    ui.decoders.clear()
+    ui._fill_gpus()
+    assert list(ui.gpu_box.cget("values")) == ["Automatic", AMD]  # the saved choice stays
+    assert ui.gpu_note.cget("text") == "The client lists no GPU to pick here; Hardware first still takes any it can use."
+
+
+@pytest.mark.parametrize("bundled", [True, False])
+def test_connect_says_when_the_client_cannot_choose_its_decoder(make_ui, fake_client,
+                                                                monkeypatch, home, bundled):
+    """A client from before /codec-first would stop on it: Connect says why instead. The
+    default passes nothing, so that client still connects with it."""
+    from freerdp_tk import app
+    monkeypatch.setenv("FAKE_NO_CODEC_FIRST", "1")
+    if bundled:
+        own = program(home / "wheel" / "client" / "sdl-freerdp")
+        monkeypatch.setattr(app, "BUNDLED", Path(own))
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    client = next(c for c in ui.clients if Path(c).parent == home / "bin")
+    v = {"host": "rdp.example.com", "client": client, "decoding": app.SOFTWARE_FIRST}
+    assert ui._launch("demo", v, "s3cret!") is False
+    arrow = app.GLYPHS["arrow"]
+    assert errors == [f"demo: {client} cannot choose its video decoder. Set Display {arrow} Video "
+                      "decoding to Hardware first and its GPU to Automatic, or pick "
+                      + ("the bundled client." if bundled else "a newer client.")]
+    ui._fill_gpus()
+    assert ui.gpu_note.cget("text").startswith("The client cannot list its video decoders")
+    assert ui._launch("demo", {**v, "decoding": app.HARDWARE_FIRST}, "s3cret!") is True
+    pump(ui, fake_client.exists)
+    stdin = json.loads(fake_client.read_text(encoding="utf-8"))["stdin"]
+    assert not any(a.startswith("/codec-first") for a in stdin.splitlines())
+
+
+def test_the_live_view_shows_the_decoder_that_runs(make_ui, fake_client, monkeypatch):
+    """The client's own line on its AV1 decoder: its kind beside the session in Running,
+    the GPU's name under the list; gone with the session."""
+    monkeypatch.setenv("FAKE_SAY", "[INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: "
+                       "D3D11VA 1 AMD Radeon(TM) 610M (hardware), dav1d as fallback")
+    monkeypatch.setenv("FAKE_STAY", "3")  # then it ends by itself
+    ui = make_ui()
+    assert ui._launch("lab", {"host": "rdp.example.com"}, "s3cret!") is True
+    session = ui.sessions[0]
+    pump(ui, lambda: ui.decoder_note.cget("text"))
+    from freerdp_tk import app
+    dot = app.GLYPHS["dot"]
+    assert ui.running_list.get(0) == f"{session.label} {dot} hardware"
+    assert ui.decoder_note.cget("text") == \
+        f"{session.label}: hardware decoding on AMD Radeon(TM) 610M (D3D11VA 1)"
+    pump(ui, lambda: not ui.sessions)
+    assert ui.decoder_note.cget("text") == ""

@@ -145,3 +145,47 @@ def test_several_monitors_as_one_big_screen(v):
 
 def test_one_big_screen_means_nothing_on_one_monitor():
     assert "/span" not in build_args({"host": "h", "multimon_mode": app.ONE_BIG}, "")
+
+
+NVIDIA = "0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)"
+AMD = "1 D3D11VA AMD Radeon(TM) 610M (AV1 4:2:0 decode)"
+
+
+def test_video_decoding_passes_codec_first():
+    """Hardware first on any GPU is the client's default: nothing is passed, so a client
+    from before /codec-first still connects. A GPU passes its /codec-list id; Software
+    first passes software, whatever the GPU says."""
+    assert app.FIELDS["decoding"] == app.HARDWARE_FIRST and app.FIELDS["gpu"] == app.ANY_GPU
+    assert not any(a.startswith("/codec-first") for a in build_args({"host": "h"}, ""))
+    assert "/codec-first:hardware:1" in build_args({"host": "h", "gpu": AMD}, "")
+    args = build_args({"host": "h", "decoding": app.SOFTWARE_FIRST, "gpu": AMD}, "")
+    assert [a for a in args if a.startswith("/codec-first")] == ["/codec-first:software"]
+
+
+def test_the_decoders_come_from_codec_list(fake_client, monkeypatch):
+    client = app.find_clients()[0]
+    assert app.list_decoders(client) == []  # it says: no hardware video decoder
+    monkeypatch.setenv("FAKE_DECODERS", f"{NVIDIA}\n{AMD}")
+    assert app.list_decoders(client) == [NVIDIA, AMD]
+    monkeypatch.setenv("FAKE_NO_CODEC_FIRST", "1")
+    assert app.list_decoders(client) is None
+    assert app.list_decoders(client + "-not-there") is None
+
+
+@pytest.mark.parametrize("line, decoder", [
+    ("[12:00:00:000] [1:2] [INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: D3D11VA 1 "
+     "AMD Radeon(TM) 610M (hardware), dav1d as fallback",
+     (True, "AMD Radeon(TM) 610M (D3D11VA 1)")),
+    ("AV1 decoder: D3D11VA 0 NVIDIA GeForce RTX 5070 Laptop GPU (hardware), dav1d as fallback",
+     (True, "NVIDIA GeForce RTX 5070 Laptop GPU (D3D11VA 0)")),
+    ("AV1 decoder: dav1d (software; /codec-first:software)", (False, "dav1d")),
+    ("AV1 decoder: dav1d (software, no GPU with a D3D11VA AV1 decoder)", (False, "dav1d")),
+    ("AV1 decoder: dav1d (software; no device of /codec-first, /codec-list lists them)",
+     (False, "dav1d")),
+    ("AV1 decoder: VideoToolbox (hardware), software as fallback", (True, "VideoToolbox")),
+    ("AV1 decoder: software (/codec-first:software)", (False, "software")),
+    ("[INFO][fake] - connected", None),
+])
+def test_the_decoder_a_log_line_names(line, decoder):
+    """The client's own words (FreeRDP libfreerdp/codec/av1.c) on the AV1 decoder it runs."""
+    assert app.decoder_of(line) == decoder

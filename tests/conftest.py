@@ -16,7 +16,9 @@ from keyring.errors import PasswordDeleteError
 # 132, authentication failed) instead, like a server that turns it down. With
 # $FAKE_255=silent it exits with 255 and says nothing, as FreeRDP's SDL client
 # does when SDL cannot start its video (a desktop with no monitor); with
-# $FAKE_255=said, it says a line first.
+# $FAKE_255=said, it says a line first. /codec-list prints $FAKE_DECODERS (none by
+# default); $FAKE_NO_CODEC_FIRST: a client from before /codec-first. $FAKE_SAY is a
+# line it says once connected, and $FAKE_STAY the seconds it then stays.
 FAKE_CLIENT = """
 import json, os, sys
 if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS says otherwise
@@ -24,8 +26,16 @@ if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS say
           "     * [1] [Built-in Retina Display] 1512x982\\t+0+0\\n"
           "       [2] [DELL U2720Q] 2560x1440\\t+-2560+0"))
     sys.exit(0)
+if sys.argv[1:] == ["/codec-list"]:
+    if os.environ.get("FAKE_NO_CODEC_FIRST"):
+        print("Unexpected keyword /codec-list")
+        sys.exit(23)
+    print(os.environ.get("FAKE_DECODERS") or "no hardware video decoder")
+    sys.exit(0)
 if sys.argv[1:] == ["/help"]:  # FreeRDP 3's help; $FAKE_NO_STATS: an older one, no overlay
     print("    /args-from:<file>|stdin|fd:<number>|env:<name>")
+    if not os.environ.get("FAKE_NO_CODEC_FIRST"):
+        print("    /codec-first:hardware[:<id>[,<id>...]]|software  Which video decoder goes first")
     if not os.environ.get("FAKE_NO_STATS"):
         print("    +sdl-info                         Enable the stats and info overlay")
     sys.exit(0)
@@ -43,6 +53,10 @@ if os.environ.get("FAKE_255") == "said":
 if os.environ.get("FAKE_255"):
     sys.exit(255)
 print("[INFO][fake] - connected")
+if os.environ.get("FAKE_SAY"):
+    print(os.environ["FAKE_SAY"], flush=True)
+    import time
+    time.sleep(float(os.environ.get("FAKE_STAY", "0")))
 sys.exit(7)
 """
 

@@ -160,6 +160,32 @@ TEXTS = {
             "只在这些显示器上全屏（编号来自“列出{dots}”）；留空：按上面的设置",
         "Graphics codec": "图形编解码器",
         "Show live stats": "显示实时统计",
+        "Video decoding":
+            "视频解码",
+        "Hardware first":
+            "硬件优先",
+        "Software first":
+            "软件优先",
+        "GPU":
+            "显卡",
+        "Automatic":
+            "自动",
+        "The client cannot list its video decoders (it needs FreeRDP 20261122.2 or newer).":
+            "客户端无法列出它的视频解码器（需要 FreeRDP 20261122.2 或更新版本）。",
+        "The client lists no GPU to pick here; Hardware first still takes any it can use.":
+            "客户端在这里列不出可选的显卡；“硬件优先”仍会使用它能用的任何显卡。",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick the bundled client.":
+            "{name}：{client} 无法选择视频解码器。请把“显示 {arrow} 视频解码”设为“硬件优先”、显卡设为“自动”，或选用自带的客户端。",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick a newer client.":
+            "{name}：{client} 无法选择视频解码器。请把“显示 {arrow} 视频解码”设为“硬件优先”、显卡设为“自动”，或选用更新的客户端。",
+        "hardware":
+            "硬件",
+        "software":
+            "软件",
+        "{session}: hardware decoding on {gpu}":
+            "{session}：在 {gpu} 上硬件解码",
+        "{session}: software decoding ({decoder})":
+            "{session}：软件解码（{decoder}）",
         "Remote desktops, low cost and high performance.": "远程桌面，低成本，高性能。",
         "Based on": "基于",
         "+ {count} of our commits": "+ 我们的 {count} 个提交",
@@ -351,6 +377,32 @@ TEXTS = {
             "これらのモニターだけでフルスクリーン（ID は「一覧{dots}」から）。空欄: 上の設定どおり",
         "Graphics codec": "グラフィックコーデック",
         "Show live stats": "ライブ統計を表示",
+        "Video decoding":
+            "ビデオデコード",
+        "Hardware first":
+            "ハードウェア優先",
+        "Software first":
+            "ソフトウェア優先",
+        "GPU":
+            "GPU",
+        "Automatic":
+            "自動",
+        "The client cannot list its video decoders (it needs FreeRDP 20261122.2 or newer).":
+            "クライアントはビデオデコーダーを一覧できません（FreeRDP 20261122.2 以降が必要です）。",
+        "The client lists no GPU to pick here; Hardware first still takes any it can use.":
+            "クライアントはここで選べる GPU を一覧しません。「ハードウェア優先」は使える GPU があれば使います。",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick the bundled client.":
+            "{name}: {client} はビデオデコーダーを選べません。「画面 {arrow} ビデオデコード」を「ハードウェア優先」に、GPU を「自動」にするか、同梱のクライアントを選んでください。",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick a newer client.":
+            "{name}: {client} はビデオデコーダーを選べません。「画面 {arrow} ビデオデコード」を「ハードウェア優先」に、GPU を「自動」にするか、新しいクライアントを選んでください。",
+        "hardware":
+            "ハードウェア",
+        "software":
+            "ソフトウェア",
+        "{session}: hardware decoding on {gpu}":
+            "{session}: {gpu} でハードウェアデコード",
+        "{session}: software decoding ({decoder})":
+            "{session}: ソフトウェアデコード（{decoder}）",
         "Remote desktops, low cost and high performance.": "リモートデスクトップを、低コスト・高性能で。",
         "Based on": "ベース",
         "+ {count} of our commits": "+ 私たちの {count} コミット",
@@ -539,6 +591,32 @@ TEXTS = {
             "Plein écran sur ceux-ci seulement (numéros donnés par Lister{dots}) ; vide : comme ci-dessus",
         "Graphics codec": "Codec graphique",
         "Show live stats": "Afficher les statistiques en direct",
+        "Video decoding":
+            "Décodage vidéo",
+        "Hardware first":
+            "Matériel d'abord",
+        "Software first":
+            "Logiciel d'abord",
+        "GPU":
+            "GPU",
+        "Automatic":
+            "Automatique",
+        "The client cannot list its video decoders (it needs FreeRDP 20261122.2 or newer).":
+            "Le client ne peut pas lister ses décodeurs vidéo (il faut FreeRDP 20261122.2 ou plus récent).",
+        "The client lists no GPU to pick here; Hardware first still takes any it can use.":
+            "Le client ne liste ici aucun GPU à choisir ; Matériel d'abord prend quand même celui qu'il peut utiliser.",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick the bundled client.":
+            "{name} : {client} ne peut pas choisir son décodeur vidéo. Réglez Affichage {arrow} Décodage vidéo sur Matériel d'abord et son GPU sur Automatique, ou choisissez le client fourni.",
+        "{name}: {client} cannot choose its video decoder. Set Display {arrow} Video decoding to Hardware first and its GPU to Automatic, or pick a newer client.":
+            "{name} : {client} ne peut pas choisir son décodeur vidéo. Réglez Affichage {arrow} Décodage vidéo sur Matériel d'abord et son GPU sur Automatique, ou choisissez un client plus récent.",
+        "hardware":
+            "matériel",
+        "software":
+            "logiciel",
+        "{session}: hardware decoding on {gpu}":
+            "{session} : décodage matériel sur {gpu}",
+        "{session}: software decoding ({decoder})":
+            "{session} : décodage logiciel ({decoder})",
         "Remote desktops, low cost and high performance.": "Des bureaux à distance, à faible coût et hautes performances.",
         "Based on": "Basé sur",
         "+ {count} of our commits": "+ {count} de nos commits",

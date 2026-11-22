@@ -82,11 +82,18 @@ WAIT_PORT, WAIT_OUTPUT, WAIT_TIME = "a port answers", "the output shows", "secon
 # monitor shows its part of the remote desktop either way.
 SEPARATE, ONE_BIG = "separate screens", "one big screen"
 MULTIMON_MODES = (SEPARATE, ONE_BIG)
+# Which AV1 decoder goes first in the client (/codec-first): the GPU's, with the software
+# one (dav1d) as its fallback, or the software one. Hardware first with any GPU is the
+# client's default, so it passes nothing and older clients still connect.
+HARDWARE_FIRST, SOFTWARE_FIRST = "Hardware first", "Software first"
+DECODINGS = (HARDWARE_FIRST, SOFTWARE_FIRST)
+ANY_GPU = "Automatic"  # else a line of the client's /codec-list, which starts with its id
+CODEC_FIRST = "/codec-first"
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
     "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)",
-    "stats": False, "clipboard": True, "sound": True,
+    "decoding": HARDWARE_FIRST, "gpu": ANY_GPU, "stats": False, "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
@@ -95,7 +102,7 @@ FIELDS = {  # name -> default; everything a saved connection stores
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_KINDS = (WAIT_PORT, WAIT_OUTPUT, WAIT_TIME)
 # Choices that the lists show translated; the form and the saved file keep them in English.
-SHOWN_CHOICES = (AUTO, *WAIT_KINDS, *MULTIMON_MODES, "(default)", "off")
+SHOWN_CHOICES = (AUTO, *WAIT_KINDS, *MULTIMON_MODES, *DECODINGS, ANY_GPU, "(default)", "off")
 WAIT_TIMEOUT = 30  # seconds to wait for the before command when no limit is set
 MAX_SECONDS = 86400  # threading's timeouts overflow far above this; nobody waits a day
 # Client exit codes that mean "try another password" (SDL3 client,
@@ -220,19 +227,68 @@ def stats_keys() -> str | None:
 STATS_ARG = "+sdl-info"
 
 
-def has_stats(client: str) -> bool | None:
-    """Whether the client draws the stats overlay: its /help lists +sdl-info.
-    None when it cannot be told (no answer in time, no help that looks like
-    FreeRDP 3's, which lists /args-from)."""
+def client_help(client: str) -> str | None:
+    """What the client's /help says, when it looks like FreeRDP 3's (it lists
+    /args-from); None when it cannot be told (no answer in time, another help)."""
     try:
         done = subprocess.run([client, "/help"], capture_output=True, text=True,
-                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+                              encoding="utf-8", errors="replace",
+                              timeout=VERSION_TIMEOUT, **no_console())
     except (OSError, subprocess.SubprocessError):
         return None
     text = done.stdout + done.stderr
-    if STATS_ARG in text:
-        return True
-    return False if "/args-from" in text else None
+    return text if STATS_ARG in text or "/args-from" in text else None
+
+
+def has_stats(client: str) -> bool | None:
+    """Whether the client draws the stats overlay: its /help lists +sdl-info.
+    None when it cannot be told."""
+    text = client_help(client)
+    return None if text is None else STATS_ARG in text
+
+
+def codec_first_args(v: dict) -> list[str]:
+    """The client's /codec-first for Video decoding and its GPU: nothing for the
+    client's own default, hardware first on any GPU."""
+    if v["decoding"] == SOFTWARE_FIRST:
+        return [f"{CODEC_FIRST}:software"]
+    gpu = re.match(r"\s*(\d+)(\s|$)", v["gpu"])
+    return [f"{CODEC_FIRST}:hardware:{gpu[1]}"] if gpu else []
+
+
+def list_decoders(client: str) -> list[str] | None:
+    """The hardware video decoders the client's /codec-list names, a line each, its
+    id first ("0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)");
+    [] when it says there are none; None when it cannot be told (an older client)."""
+    try:
+        done = subprocess.run([client, "/codec-list"], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=VERSION_TIMEOUT, **no_console())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [line.strip() for line in done.stdout.splitlines()]
+    found = [line for line in lines if re.match(r"\d+ \S", line)]
+    if found or (done.returncode == 0 and "no hardware video decoder" in lines):
+        return found
+    return None
+
+
+def decoder_of(line: str) -> tuple[bool, str] | None:
+    """The AV1 decoder a client log line says runs, as (hardware, its name):
+    "AV1 decoder: D3D11VA 1 AMD Radeon(TM) 610M (hardware), dav1d as fallback" is
+    (True, "AMD Radeon(TM) 610M (D3D11VA 1)"), "AV1 decoder: dav1d (software;
+    /codec-first:software)" is (False, "dav1d"). None for any other line."""
+    said = re.search(r"AV1 decoder: (.+)$", line)
+    if not said:
+        return None
+    text = said[1].strip()
+    gpu = re.match(r"(\S+) (\d+) (.+?) \(hardware\)", text)
+    if gpu:
+        return True, f"{gpu[3]} ({gpu[1]} {gpu[2]})"
+    name = text.split(" (", 1)[0].split(",", 1)[0].strip()
+    if "(hardware)" in text:  # VideoToolbox: one, with no device to name
+        return True, name
+    return False, name
 
 
 def find_clients() -> list[str]:
@@ -589,6 +645,7 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
         args.append("-gfx")
     elif v["gfx"] != "(default)":
         args.append(f"/gfx:{v['gfx']}")
+    args += codec_first_args(v)
     if v["stats"]:  # the SDL3 client's overlay: codec, frames per second, bandwidth, round trip
         args.append(STATS_ARG)
     args.append("+clipboard" if v["clipboard"] else "-clipboard")
@@ -1226,7 +1283,9 @@ class App(ttk.Frame):
         self.output: queue.Queue = queue.Queue()
         self.versions: dict[str, int] = {}  # known versions only: an unknown one is asked again
         self.cannot_start: dict[str, str] = {}  # auto passes over these; asked at each Connect
-        self.stats: dict[str, bool] = {}  # client -> it has the stats overlay, once known
+        self.helps: dict[str, str] = {}  # client -> its /help, once it could be read
+        self.decoders: dict[str, list[str]] = {}  # client -> its /codec-list, once known
+        self.decoder_session: Session | None = None  # whose decoder the live view shows
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1325,6 +1384,9 @@ class App(ttk.Frame):
         self.running_list = tk.Listbox(left, width=26, selectmode="extended",
                                        exportselection=False)
         self.running_list.pack(fill="both", expand=True)
+        # which video decoder the newest session that said so runs: the GPU's or the software one
+        self.decoder_note = ttk.Label(left, text="", wraplength=200, justify="left")
+        self.decoder_note.pack(anchor="w", fill="x")
         panes.add(left, weight=0)
         right = ttk.Frame(panes)
         ttk.Label(right, text=tr("Log")).pack(anchor="w")
@@ -1482,12 +1544,53 @@ class App(ttk.Frame):
         self._row(f, 7, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
                                                             state="readonly"),
                   "gfx")
-        self._check(f, 8, tr("Show live stats"), "stats")
+        self._row(f, 8, tr("Video decoding"), self._choices(f, "decoding", list(DECODINGS),
+                                                            state="readonly"),
+                  "decoding")
+        self.gpu_box = self._choices(f, "gpu", [ANY_GPU], state="readonly",
+                                     postcommand=self._fill_gpus)
+        self._row(f, 9, tr("GPU"), self.gpu_box, "gpu")
+        self.gpu_note = ttk.Label(f, text="", foreground="gray")
+        self.gpu_note.grid(row=10, column=1, sticky="w")
+        self.vars["decoding"].trace_add("write", lambda *_: self._gpu_state())
+        self._gpu_state()
+        self._check(f, 11, tr("Show live stats"), "stats")
         keys = stats_keys()
         if keys:  # nothing rather than keys that may be wrong
             ttk.Label(f, text=tr("Show or hide them in a session: {keys}", keys=keys),
-                      foreground="gray").grid(row=9, column=1, sticky="w")
+                      foreground="gray").grid(row=12, column=1, sticky="w")
         return f
+
+    def _gpu_state(self):
+        """The GPU picks a hardware decoder, so it has nothing to pick with Software first."""
+        software = self.vars["decoding"].get() == SOFTWARE_FIRST
+        self.gpu_box.configure(state="disabled" if software else "readonly")
+
+    def _fill_gpus(self):
+        """Fill the GPU list from the client's /codec-list as it opens, and say when
+        there is nothing to pick."""
+        client = self._resolve_client(self.vars["client"].get())
+        if not client:
+            found = None
+        elif client in self.decoders:
+            found = self.decoders[client]
+        else:
+            found = list_decoders(client)
+            if found is not None:
+                self.decoders[client] = found
+        gpus, chosen = list(found or []), self.vars["gpu"].get()
+        if chosen != ANY_GPU and chosen not in gpus:  # saved on another computer, say
+            gpus.append(chosen)
+        self.gpu_box.configure(values=[tr(ANY_GPU), *gpus])
+        if found is None:
+            note = tr("The client cannot list its video decoders (it needs FreeRDP 20261122.2 "
+                      "or newer).")
+        elif not found:
+            note = tr("The client lists no GPU to pick here; Hardware first still takes any "
+                      "it can use.")
+        else:
+            note = ""
+        self.gpu_note.configure(text=note)
 
     def _devices_tab(self, parent):
         f = self._grid(parent)
@@ -1567,16 +1670,16 @@ class App(ttk.Frame):
             return next(iter(usable or self.clients), "")
         return choice if shutil.which(choice) or Path(choice).is_file() else ""
 
-    def _knows_stats(self, client: str) -> bool:
-        """False only when the client's own help says it has no stats overlay: an
-        older client stops on the unknown +sdl-info ("Unexpected keyword", exit 23)
-        a second after Connect. Unknown is tried; known answers are kept."""
-        if client not in self.stats:
-            known = has_stats(client)
-            if known is None:
+    def _knows(self, client: str, arg: str) -> bool:
+        """False only when the client's own help does not list arg: an older client
+        stops on an unknown argument ("Unexpected keyword", exit 23) a second after
+        Connect. Unknown is tried; a help that could be read is kept."""
+        if client not in self.helps:
+            text = client_help(client)
+            if text is None:
                 return True
-            self.stats[client] = known
-        return self.stats[client]
+            self.helps[client] = text
+        return arg in self.helps[client]
 
     def _ask_versions(self) -> dict[str, str]:
         """Auto takes the first client that is FreeRDP 3 and starts: a FreeRDP 2
@@ -1681,13 +1784,24 @@ class App(ttk.Frame):
         if not v["host"].strip():
             messagebox.showerror(APP, tr("Enter a host to connect to."))
             return False
-        if v["stats"] and not self._knows_stats(client):
+        if v["stats"] and not self._knows(client, STATS_ARG):
             messagebox.showerror(APP, tr("{name}: {client} has no live stats. Untick Display "
                                          "{arrow} Show live stats, or pick the bundled client.",
                                          name=name, client=client, arrow=GLYPHS["arrow"])
                                  if BUNDLED.is_file() else
                                  tr("{name}: {client} has no live stats. Untick Display "
                                     "{arrow} Show live stats, or pick a newer client.",
+                                    name=name, client=client, arrow=GLYPHS["arrow"]))
+            return False
+        if codec_first_args(v) and not self._knows(client, CODEC_FIRST):
+            messagebox.showerror(APP, tr("{name}: {client} cannot choose its video decoder. Set "
+                                         "Display {arrow} Video decoding to Hardware first and "
+                                         "its GPU to Automatic, or pick the bundled client.",
+                                         name=name, client=client, arrow=GLYPHS["arrow"])
+                                 if BUNDLED.is_file() else
+                                 tr("{name}: {client} cannot choose its video decoder. Set "
+                                    "Display {arrow} Video decoding to Hardware first and "
+                                    "its GPU to Automatic, or pick a newer client.",
                                     name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
         if no_monitor((self.winfo_screenwidth(), self.winfo_screenheight()), client):
@@ -1784,10 +1898,15 @@ class App(ttk.Frame):
                 session, line = self.output.get_nowait()
                 if line is not None:
                     self._log(line, session)
+                    if (decoder := decoder_of(line)) and session in self.sessions:
+                        self._show_decoder(session, *decoder)
                 elif session in self.sessions:
                     index = self.sessions.index(session)
                     self.sessions.pop(index)
                     self.running_list.delete(index)
+                    if self.decoder_session is session:
+                        self.decoder_session = None
+                        self.decoder_note.configure(text="")
                     if session.code in BAD_PASSWORD and not session.stopping:
                         self.after_idle(self._rejected, session)
         except queue.Empty:
@@ -1795,6 +1914,22 @@ class App(ttk.Frame):
         for done in self.keyring.finished():
             self.after_idle(done)  # not here: a password dialog would hold up the output
         self.after(100, self._drain_output)
+
+    def _show_decoder(self, session: Session, hardware: bool, name: str):
+        """The live view of the decoder: its kind beside the session in Running, and
+        the whole of it under the list."""
+        kind = tr("hardware") if hardware else tr("software")
+        index = self.sessions.index(session)
+        picked = index in self.running_list.curselection()
+        self.running_list.delete(index)
+        self.running_list.insert(index, f"{session.label} {GLYPHS['dot']} {kind}")
+        if picked:
+            self.running_list.selection_set(index)
+        self.decoder_session = session
+        self.decoder_note.configure(
+            text=tr("{session}: hardware decoding on {gpu}", session=session.label, gpu=name)
+            if hardware else
+            tr("{session}: software decoding ({decoder})", session=session.label, decoder=name))
 
     def _log(self, text: str, session: Session | None = None):
         prefix = f"[{session.label}] " if session else ""
