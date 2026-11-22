@@ -15,6 +15,7 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
   or software, and the card's name under the list (on Windows and macOS: the Linux client
   decodes in software and says nothing). It needs the bundled client, FreeRDP 20261122.2 or
   newer, for anything but the default; an older one still connects with the default.
+- Under the hood: the bundled client is FreeRDP 20261122.4 (rdp-release-kit 20261122.6).
 
 ## 20261122.2
 
