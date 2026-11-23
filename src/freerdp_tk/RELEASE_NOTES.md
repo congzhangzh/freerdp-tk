@@ -17,7 +17,7 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
   decoder, and with dav1d otherwise (not yet proven on a real GPU). As on Windows, *GPU* on
   *Display* lists those cards, by driver and render node (`/dev/dri/renderD128`); on a Mac
   the list now names VideoToolbox.
-- Under the hood: the bundled client is FreeRDP 20261123.2 (rdp-release-kit 20261123.2).
+- Under the hood: the bundled client is FreeRDP 20261123.3 (rdp-release-kit 20261123.3).
 
 ## 20261122.3
 
