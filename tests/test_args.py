@@ -355,3 +355,26 @@ def test_the_decoders_come_from_codec_list(fake_client, monkeypatch):
 def test_the_decoder_a_log_line_names(line, decoder):
     """The client's own words (FreeRDP libfreerdp/codec/av1.c) on the AV1 decoder it runs."""
     assert app.decoder_of(line) == decoder
+
+
+@pytest.mark.parametrize("line, said", [  # the lines TestSDLHiDpi's checkLayoutText pins
+    ("[13:02:11:120] [3:4] [INFO][com.freerdp.client.SDL] - [sendLayout]: HiDPI: 2 points "
+     "(display 2x, 1280x832 -> desktop 200/180)",
+     ("2", "points", "display 2x, 1280x832, desktop 200 %")),
+    ("HiDPI: 1 pixels (display 1x, 1920x1080 -> desktop 150/140)",
+     ("1", "pixels", "display 1x, 1920x1080, desktop 150 %")),
+    ("HiDPI: 3 scale:150 (display 2x, 2268x1472 -> desktop 100/100)",
+     ("3", "scale:150", "display 2x, 2268x1472, desktop 100 %")),
+    ("HiDPI: 4 points (display 1.5x, 1280x720 -> desktop 150/140)",
+     ("4", "points", "display 1.5x, 1280x720, desktop 150 %")),
+    ("[INFO][com.freerdp.client.SDL] - [sendLayout]: AV1 decoder: dav1d (software)", None),
+    ("/sdl-hidpi:points|pixels|scale:<N>  How a window on a display ...", None),
+])
+def test_hidpi_of(line, said):
+    assert app.hidpi_of(line) == said
+
+
+def test_a_newer_client_gives_the_os_scale_in_its_monitor_list():
+    """FreeRDP 20261123.5 and newer end each /list:monitor line with the scale."""
+    line = "     * [1] [Built-in Retina Display] 1512x982\t+0+0\t200%"
+    assert app.parse_monitors(line)[0]["scale"] == 200

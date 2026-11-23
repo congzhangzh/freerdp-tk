@@ -728,3 +728,34 @@ def test_hidpi_reaches_the_client_unless_it_is_too_old(make_ui, fake_client, mon
     assert hidpi == ([] if old else ["/sdl-hidpi:pixels,2:scale:150"])
     said = "has no /sdl-hidpi (FreeRDP 20261123.4 and newer); connecting without the HiDPI"
     assert (said in log_text(ui)) is old
+
+
+@pytest.mark.parametrize("said, shown, note", [
+    (["HiDPI: 1 points (display 2x, 1280x832 -> desktop 200/180)",
+      "HiDPI: 2 points (display 1x, 1920x1080 -> desktop 100/100)"],
+     "points", "1 points (display 2x, 1280x832, desktop 200 %); "
+               "2 points (display 1x, 1920x1080, desktop 100 %)"),
+    (["HiDPI: 2 scale:150 (display 1x, 2880x1620 -> desktop 100/100)",
+      "HiDPI: 1 points (display 2x, 1280x832 -> desktop 200/180)"],
+     "1 points, 2 scale:150", "1 points (display 2x, 1280x832, desktop 200 %); "
+                              "2 scale:150 (display 1x, 2880x1620, desktop 100 %)"),
+])
+def test_the_live_view_shows_each_monitors_hidpi(make_ui, fake_client, monkeypatch,
+                                                 said, shown, note):
+    """The client's line for each monitor of a layout it sends: the modes beside the
+    session in Running, after its decoder, one word when they agree; each monitor under
+    the list; gone with the session."""
+    lines = ["[INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: dav1d (software)",
+             *(f"[INFO][com.freerdp.client.SDL] - [sendLayout]: {s}" for s in said)]
+    monkeypatch.setenv("FAKE_SAY", "\n".join(lines))
+    monkeypatch.setenv("FAKE_STAY", "3")
+    ui = make_ui()
+    assert ui._launch("lab", {"host": "rdp.example.com"}, "s3cret!") is True
+    session = ui.sessions[0]
+    pump(ui, lambda: ui.hidpi_live.cget("text").count("(display") == 2)
+    from freerdp_tk import app
+    dot = app.GLYPHS["dot"]
+    assert ui.running_list.get(0) == f"{session.label} {dot} software {dot} {shown}"
+    assert ui.hidpi_live.cget("text") == f"{session.label}: HiDPI {note}"
+    pump(ui, lambda: not ui.sessions)
+    assert ui.hidpi_live.cget("text") == ""

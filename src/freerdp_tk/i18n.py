@@ -103,6 +103,8 @@ TEXTS = {
         # dialogs
         "Full screen on these monitors:": "在这些显示器上全屏：",
         "monitor": "显示器",
+        "{session}: HiDPI {monitors}":
+            "{session}：HiDPI {monitors}",
         "Follow the OS (per monitor)":
             "跟随系统（按显示器）",
         "Points":
@@ -349,6 +351,8 @@ TEXTS = {
     "ja": {
         "Full screen on these monitors:": "次のモニターでフルスクリーン:",
         "monitor": "モニター",
+        "{session}: HiDPI {monitors}":
+            "{session}: HiDPI {monitors}",
         "Follow the OS (per monitor)":
             "OS に従う（モニターごと）",
         "Points":
@@ -589,6 +593,8 @@ TEXTS = {
     "fr": {
         "Full screen on these monitors:": "Plein écran sur ces écrans :",
         "monitor": "écran",
+        "{session}: HiDPI {monitors}":
+            "{session} : HiDPI {monitors}",
         "Follow the OS (per monitor)":
             "Suivre le système (par écran)",
         "Points":

@@ -347,6 +347,22 @@ def decoder_of(line: str) -> tuple[bool, str] | None:
     return False, name
 
 
+# The client's line for each monitor of a layout it sends (FreeRDP 20261123.6 and newer,
+# sdl::hidpi::layoutText): "HiDPI: 2 points (display 2x, 1280x832 -> desktop 200/180)"
+HIDPI_LINE = re.compile(r"HiDPI: (\d+) (points|pixels|scale:\d+) \(display ([\d.]+)x, "
+                        r"(\d+x\d+) -> desktop (\d+)/(\d+)\)")
+
+
+def hidpi_of(line: str) -> tuple[str, str, str] | None:
+    """The HiDPI mode a client log line says one monitor runs in, as (its display id, its
+    mode, the rest): "... HiDPI: 2 points (display 2x, 1280x832 -> desktop 200/180)" is
+    ("2", "points", "display 2x, 1280x832, desktop 200 %"). None for any other line."""
+    said = HIDPI_LINE.search(line)
+    if not said:
+        return None
+    return said[1], said[2], f"display {said[3]}x, {said[4]}, desktop {said[5]} %"
+
+
 def find_clients() -> list[str]:
     """The client in the wheel, then SDL clients on PATH, then in local FreeRDP
     build trees: the order auto tries them in.
@@ -1282,6 +1298,8 @@ class Session:
         self.seen = threading.Event()  # it came by
         self.wait_began = 0.0
         self.code: int | None = None  # the client's exit code
+        self.decoding = ""  # the kind of video decoder it says it runs, once it says so
+        self.hidpi: dict[str, tuple[str, str]] = {}  # display id -> (mode, the rest), as said
         threading.Thread(target=self._run, daemon=True).start()
 
     def say(self, text: str):
@@ -1463,6 +1481,7 @@ class App(ttk.Frame):
         self.helps: dict[str, str] = {}  # client -> its /help, once it could be read
         self.decoders: dict[str, list[str]] = {}  # client -> its /codec-list, once known
         self.decoder_session: Session | None = None  # whose decoder the live view shows
+        self.hidpi_session: Session | None = None  # whose HiDPI modes it shows
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1564,6 +1583,9 @@ class App(ttk.Frame):
         # which video decoder the newest session that said so runs: the GPU's or the software one
         self.decoder_note = ttk.Label(left, text="", wraplength=200, justify="left")
         self.decoder_note.pack(anchor="w", fill="x")
+        # the HiDPI mode of each monitor of the newest session that said so
+        self.hidpi_live = ttk.Label(left, text="", wraplength=200, justify="left")
+        self.hidpi_live.pack(anchor="w", fill="x")
         panes.add(left, weight=0)
         right = ttk.Frame(panes)
         ttk.Label(right, text=tr("Log")).pack(anchor="w")
@@ -2114,6 +2136,8 @@ class App(ttk.Frame):
                     self._log(line, session)
                     if (decoder := decoder_of(line)) and session in self.sessions:
                         self._show_decoder(session, *decoder)
+                    if (hidpi := hidpi_of(line)) and session in self.sessions:
+                        self._show_hidpi(session, *hidpi)
                 elif session in self.sessions:
                     index = self.sessions.index(session)
                     self.sessions.pop(index)
@@ -2121,6 +2145,9 @@ class App(ttk.Frame):
                     if self.decoder_session is session:
                         self.decoder_session = None
                         self.decoder_note.configure(text="")
+                    if self.hidpi_session is session:
+                        self.hidpi_session = None
+                        self.hidpi_live.configure(text="")
                     if session.code in BAD_PASSWORD and not session.stopping:
                         self.after_idle(self._rejected, session)
         except queue.Empty:
@@ -2132,18 +2159,39 @@ class App(ttk.Frame):
     def _show_decoder(self, session: Session, hardware: bool, name: str):
         """The live view of the decoder: its kind beside the session in Running, and
         the whole of it under the list."""
-        kind = tr("hardware") if hardware else tr("software")
-        index = self.sessions.index(session)
-        picked = index in self.running_list.curselection()
-        self.running_list.delete(index)
-        self.running_list.insert(index, f"{session.label} {GLYPHS['dot']} {kind}")
-        if picked:
-            self.running_list.selection_set(index)
+        session.decoding = tr("hardware") if hardware else tr("software")
+        self._relabel(session)
         self.decoder_session = session
         self.decoder_note.configure(
             text=tr("{session}: hardware decoding on {gpu}", session=session.label, gpu=name)
             if hardware else
             tr("{session}: software decoding ({decoder})", session=session.label, decoder=name))
+
+    def _show_hidpi(self, session: Session, display: str, mode: str, rest: str):
+        """The live view of HiDPI: each monitor's mode beside the session in Running (one
+        word when they agree), and the whole of it under the list. A monitor keeps the mode
+        of the last layout sent for it."""
+        session.hidpi[display] = (mode, rest)
+        self._relabel(session)
+        self.hidpi_session = session
+        self.hidpi_live.configure(text=tr(
+            "{session}: HiDPI {monitors}", session=session.label,
+            monitors="; ".join(f"{i} {m} ({r})" for i, (m, r) in sorted(
+                session.hidpi.items(), key=lambda item: int(item[0])))))
+
+    def _relabel(self, session: Session):
+        """A session's line in Running: its name, then what it said of its decoder and of
+        its monitors' HiDPI modes."""
+        monitors = sorted(session.hidpi.items(), key=lambda item: int(item[0]))
+        modes = {mode for _, (mode, _) in monitors}
+        hidpi = modes.pop() if len(modes) == 1 else ", ".join(f"{i} {m}" for i, (m, _) in monitors)
+        index = self.sessions.index(session)
+        picked = index in self.running_list.curselection()
+        self.running_list.delete(index)
+        self.running_list.insert(index, f" {GLYPHS['dot']} ".join(
+            part for part in (session.label, session.decoding, hidpi) if part))
+        if picked:
+            self.running_list.selection_set(index)
 
     def _log(self, text: str, session: Session | None = None):
         prefix = f"[{session.label}] " if session else ""
