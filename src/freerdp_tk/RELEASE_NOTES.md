@@ -5,6 +5,12 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- Under the hood: the monitor list also reads the pixel density that newer clients add after
+  the scale (a Retina Mac shows "100 %, 2x"), and lists a monitor whatever a client adds
+  after its position; before, a field it did not know hid the monitor.
+
 ## 20261123.2
 
 - **HiDPI, monitor by monitor.** *Display* has a new *HiDPI*: *Follow the OS (per monitor)*

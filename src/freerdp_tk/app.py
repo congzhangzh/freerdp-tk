@@ -430,18 +430,29 @@ def client_start_error(client: str) -> str:
     return probe_client(client)[1]
 
 
-# "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors(); newer clients add the
-# monitor's OS scale, "\t150%" (SDL_GetDisplayContentScale)
+# "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors(). Fields may follow: the
+# monitor's OS scale, "\t150%" (FreeRDP 20261123.5 and newer, SDL_GetDisplayContentScale),
+# then its pixel density, "\t2x" (after 20261123.6; 2x on a Retina Mac). Any field is
+# optional and one not known here is left alone, so a newer client still lists.
 MONITOR_LINE = re.compile(r"^\s*(\*?)\s*\[(\d+)\]\s*\[(.*)\]\s+(\d+x\d+)\s+(\+-?\d+\+-?\d+)"
-                          r"(?:\s+(\d+(?:\.\d+)?)\s*%)?\s*$")
+                          r"((?:\s+\S+)*)\s*$")
+SCALE_FIELD = re.compile(r"(?:^|\s)(\d+(?:\.\d+)?)\s*%")
+DENSITY_FIELD = re.compile(r"(?:^|\s)(\d+(?:\.\d+)?)x(?=\s|$)")
 
 
 def parse_monitors(output: str) -> list[dict]:
     """The monitors in the output of the SDL client's /list:monitor; "scale" is the OS
-    scale in per cent, None when the client does not say."""
-    return [{"id": m[2], "name": m[3], "size": m[4], "at": m[5], "primary": m[1] == "*",
-             "scale": round(float(m[6])) if m[6] else None}
-            for m in map(MONITOR_LINE.match, output.splitlines()) if m]
+    scale in per cent and "density" the pixels per point, None when the client does not
+    say."""
+    monitors = []
+    for m in map(MONITOR_LINE.match, output.splitlines()):
+        if m:
+            scale, density = SCALE_FIELD.search(m[6]), DENSITY_FIELD.search(m[6])
+            monitors.append({"id": m[2], "name": m[3], "size": m[4], "at": m[5],
+                             "primary": m[1] == "*",
+                             "scale": round(float(scale[1])) if scale else None,
+                             "density": float(density[1]) if density else None})
+    return monitors
 
 
 def dpi_at(x: int, y: int) -> int | None:
@@ -845,9 +856,11 @@ def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str],
                   size=m["size"], at=m["at"])
         ttk.Checkbutton(frame, text=tr("{text} (primary)", text=text) if m["primary"] else text,
                         variable=var).grid(row=row, column=0, sticky="w")
-        scale = m.get("scale")
-        ttk.Label(frame, text=f"{scale} %" if scale else tr("unknown"),
-                  foreground="" if scale else "gray").grid(row=row, column=1, sticky="w", padx=8)
+        density = m.get("density")
+        known = ([f"{m['scale']} %"] if m.get("scale") else []) + \
+            ([f"{density:g}x"] if density and density != 1 else [])  # 2x on a Retina Mac
+        ttk.Label(frame, text=", ".join(known) or tr("unknown"),
+                  foreground="" if known else "gray").grid(row=row, column=1, sticky="w", padx=8)
         setting = own.get(m["id"], "")
         mode = {"points": POINTS, "pixels": PIXELS}.get(setting, SCALE if setting else
                                                          SAME_AS_DEFAULT)

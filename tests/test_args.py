@@ -41,11 +41,11 @@ def test_monitor_list_is_parsed():
               "       [5] [] 1920x1080\t+1512+-200\n")
     assert app.parse_monitors(output) == [
         {"id": "1", "name": "Built-in Retina Display", "size": "1512x982", "at": "+0+0",
-         "primary": True, "scale": None},
+         "primary": True, "scale": None, "density": None},
         {"id": "4", "name": "DELL U2720Q", "size": "2560x1440", "at": "+-2560+0",
-         "primary": False, "scale": None},
+         "primary": False, "scale": None, "density": None},
         {"id": "5", "name": "", "size": "1920x1080", "at": "+1512+-200", "primary": False,
-         "scale": None}]
+         "scale": None, "density": None}]
     assert app.parse_monitors("listing 0 monitors:\n") == []
 
 
@@ -378,3 +378,18 @@ def test_a_newer_client_gives_the_os_scale_in_its_monitor_list():
     """FreeRDP 20261123.5 and newer end each /list:monitor line with the scale."""
     line = "     * [1] [Built-in Retina Display] 1512x982\t+0+0\t200%"
     assert app.parse_monitors(line)[0]["scale"] == 200
+
+
+@pytest.mark.parametrize("fields, scale, density", [  # TestSDLHiDpi's listMonitorFields
+    ("\t100%\t2x", 100, 2.0), ("\t150%\t1x", 150, 1.0), ("\t125%\t1.5x", 125, 1.5),
+    ("\t200%\t2x", 200, 2.0),
+    ("\t150%", 150, None),  # FreeRDP 20261123.6: the scale alone
+    ("", None, None),  # before 20261123.5
+    ("\t150%\t1x\tsomething-new", 150, 1.0),  # a field not known here is left alone
+])
+def test_the_monitor_list_gives_scale_and_density(fields, scale, density):
+    """The live Xvfb line of FreeRDP 51d01ba26, with each set of trailing fields: the
+    monitor is listed whatever follows its position."""
+    monitors = app.parse_monitors(f"     * [1] [screen] 1920x1080\t+0+0{fields}")
+    assert [(m["id"], m["size"], m["at"], m["scale"], m["density"]) for m in monitors] == \
+        [("1", "1920x1080", "+0+0", scale, density)]

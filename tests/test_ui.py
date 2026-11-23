@@ -436,14 +436,14 @@ def test_the_monitor_dialog(make_ui):
     from freerdp_tk import app
     ui = make_ui()
     failed = []
-    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0\t200%\n"
+    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0\t100%\t2x\n"
                                   "    [3] [B] 1920x1080\t+1920+0")
 
     def answer():
         dialog = next(w for w in widgets(ui) if w.winfo_class() == "Toplevel")
         mine = [w for w in widgets(ui) if w.winfo_toplevel() is dialog]
         texts = [w.cget("text") for w in mine if w.winfo_class() == "TLabel"]
-        assert "200 %" in texts and "unknown" in texts  # 3's client gave no scale
+        assert "100 %, 2x" in texts and "unknown" in texts  # a Retina Mac; 3 said nothing
         boxes = [w for w in mine if w.winfo_class() == "TCheckbutton"]
         click(ui, next(b for b in boxes if b.cget("text").startswith("3:")))  # tick 3
         click(ui, next(b for b in boxes if b.cget("text").startswith("1:")))  # untick 1
