@@ -5,7 +5,7 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
-## Unreleased
+## 20261123.2
 
 - **HiDPI, monitor by monitor.** *Display* has a new *HiDPI*: *Follow the OS (per monitor)*
   (the default, and the client's own since FreeRDP 20261123.4: each monitor gets the session
