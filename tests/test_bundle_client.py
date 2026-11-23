@@ -113,14 +113,14 @@ def test_the_lock_names_one_client_for_every_platform():
 def test_the_release_comes_from_the_lock_not_the_file_names(tmp_path):
     lock = tmp_path / "client.lock"
     lock.write_text("# head\n\n# release 20261112.1\n"
-                    "ab  sdl3-freerdp-20261111.4-linux-x86_64.tar.xz\n")
+                    "ab  sdl3-freerdp-20261111.4-linux-x86_64.tar.xz\n", encoding="utf-8")
     assert bundle_client.lock_release(lock) == "20261112.1"
     assert bundle_client.read_lock(lock) == {"sdl3-freerdp-20261111.4-linux-x86_64.tar.xz": "ab"}
 
 
 def test_an_old_lock_takes_the_release_from_the_file_names(tmp_path):
     lock = tmp_path / "client.lock"
-    lock.write_text("# head\n\nab  sdl3-freerdp-20261106.3-linux-x86_64.tar.xz\n")
+    lock.write_text("# head\n\nab  sdl3-freerdp-20261106.3-linux-x86_64.tar.xz\n", encoding="utf-8")
     assert bundle_client.lock_release(lock) == "20261106.3"
 
 

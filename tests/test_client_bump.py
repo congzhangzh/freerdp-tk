@@ -66,9 +66,9 @@ def repo(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     (root / "src" / "freerdp_tk").mkdir(parents=True)
     notes = root / "src" / "freerdp_tk" / "RELEASE_NOTES.md"
-    notes.write_text(HEAD + OLD)
-    (root / "client.lock").write_text("# release 20261115.3\n")
-    (root / "README.md").write_text("readme\n")
+    notes.write_text(HEAD + OLD, encoding="utf-8")
+    (root / "client.lock").write_text("# release 20261115.3\n", encoding="utf-8")
+    (root / "README.md").write_text("readme\n", encoding="utf-8")
 
     def git(*args):
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
@@ -85,8 +85,9 @@ def repo(tmp_path, monkeypatch):
     monkeypatch.setattr(client_bump, "NOTES", notes)
 
     def do_bump(release, freerdp):
-        (root / "client.lock").write_text(f"# release {release}\n")
-        notes.write_text(client_bump.with_bump(notes.read_text(), release, freerdp))
+        (root / "client.lock").write_text(f"# release {release}\n", encoding="utf-8")
+        notes.write_text(client_bump.with_bump(notes.read_text(encoding="utf-8"), release, freerdp),
+                         encoding="utf-8")
         commit(f"Bundle the client of rdp-release-kit {release}")
 
     return root, commit, do_bump
@@ -103,7 +104,7 @@ def test_only_bumps_since_the_tag_are_client_only(repo):
 
 def test_a_ui_commit_since_the_tag_is_not_client_only(repo):
     root, commit, do_bump = repo
-    (root / "README.md").write_text("new words\n")
+    (root / "README.md").write_text("new words\n", encoding="utf-8")
     commit("Explain something")
     do_bump("20261115.4", "20261114.3")
     ok, why = client_bump.client_only()
@@ -113,8 +114,9 @@ def test_a_ui_commit_since_the_tag_is_not_client_only(repo):
 def test_a_notes_line_by_hand_is_not_client_only(repo):
     root, commit, do_bump = repo
     notes = root / "src" / "freerdp_tk" / "RELEASE_NOTES.md"
-    notes.write_text(client_bump.with_bump(notes.read_text(), "20261115.4", "20261114.3")
-                     .replace("## Unreleased\n\n", "## Unreleased\n\n- Show live stats.\n"))
+    notes.write_text(client_bump.with_bump(notes.read_text(encoding="utf-8"), "20261115.4", "20261114.3")
+                     .replace("## Unreleased\n\n", "## Unreleased\n\n- Show live stats.\n"),
+                     encoding="utf-8")
     commit("Release note by hand")
     assert client_bump.client_only()[0] is False
 
@@ -126,7 +128,7 @@ def test_a_kit_release_with_the_same_client_is_no_bump(tmp_path):
     def lock(path, release, version, digest):
         path.write_text(f"# pins\n\n# release {release}\n" + "".join(
             f"{digest}{n}  sdl3-freerdp-{version}-{p}\n"
-            for n, p in enumerate(["linux-x86_64.tar.xz", "windows-x86_64.zip"])))
+            for n, p in enumerate(["linux-x86_64.tar.xz", "windows-x86_64.zip"])), encoding="utf-8")
         return path
     old = lock(tmp_path / "old", "20261115.7", "20261115.1", "aa")
     rebuilt = lock(tmp_path / "rebuilt", "20261115.8", "20261115.1", "bb")

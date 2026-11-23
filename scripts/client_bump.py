@@ -97,7 +97,7 @@ def is_bump_change(files: set[str], notes_diff: list[str]) -> bool:
 
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, check=True, capture_output=True,
-                          text=True).stdout
+                          text=True, encoding="utf-8", errors="replace").stdout
 
 
 def last_tag() -> str | None:
