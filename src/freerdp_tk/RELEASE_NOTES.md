@@ -5,7 +5,7 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
-## Unreleased
+## 20261123.3
 
 - Under the hood: the monitor list also reads the pixel density that newer clients add after
   the scale (a Retina Mac shows "100 %, 2x"), and lists a monitor whatever a client adds
