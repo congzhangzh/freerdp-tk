@@ -13,6 +13,7 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 - Under the hood: everything freerdp-tk reads from the client and its helpers, and the
   password it hands the client, is UTF-8 now, not the system's code page (cp936 on a
   Chinese Windows), and the tests fail on any text that is not.
+- Under the hood: the bundled client is FreeRDP 20261123.1 (rdp-release-kit 20261123.1).
 
 ## 20261122.3
 
