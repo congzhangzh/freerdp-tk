@@ -122,3 +122,21 @@ def test_an_old_lock_takes_the_release_from_the_file_names(tmp_path):
     lock = tmp_path / "client.lock"
     lock.write_text("# head\n\nab  sdl3-freerdp-20261106.3-linux-x86_64.tar.xz\n")
     assert bundle_client.lock_release(lock) == "20261106.3"
+
+
+@pytest.mark.parametrize("intel", [True, False])
+def test_pin_takes_one_client_per_wheel_and_no_intel_mac(tmp_path, monkeypatch, intel):
+    """The kit built macos-x86_64 until 20261122.6; a pin leaves it out, with or without it."""
+    ends = [*bundle_client.PLATFORMS.values(), *(["macos-x86_64.tar.xz"] if intel else [])]
+    sums = "".join(f"{i:064x}  sdl3-freerdp-20261122.4-{end}\n" for i, end in enumerate(ends))
+    sums += f"{9:064x}  freerdp-host-20261122.4-linux-x86_64.tar.xz\n"
+    monkeypatch.setattr(bundle_client, "fetch", lambda url: sums.encode())
+    lock = tmp_path / "client.lock"
+    lock.write_text("# head\n\n# release 20261122.5\nab  old\n", encoding="utf-8")
+    monkeypatch.setattr(bundle_client, "LOCK", lock)
+    bundle_client.pin("20261122.6")
+    pinned = bundle_client.read_lock(lock)
+    assert bundle_client.lock_release(lock) == "20261122.6"
+    assert len(pinned) == len(bundle_client.PLATFORMS)
+    assert not any("macos-x86_64" in name for name in pinned)
+    assert lock.read_text(encoding="utf-8").startswith("# head\n\n")

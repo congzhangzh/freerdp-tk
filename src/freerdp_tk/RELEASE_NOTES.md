@@ -5,6 +5,12 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- **macOS on Intel is no longer built; 20261122.3 is the last release with it.** On an
+  Intel Mac, freerdp-tk comes without a client from now on: install one with `brew install
+  freerdp` (auto finds it on your `PATH`), or stay on `uvx freerdp-tk==20261122.3`.
+
 ## 20261122.3
 
 - **Hardware or software video decoding.** *Display* has a new *Video decoding*: *Hardware

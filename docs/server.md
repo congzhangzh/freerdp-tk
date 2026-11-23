@@ -68,7 +68,7 @@ the rest.
 
 ## macOS
 
-The macOS host archive, then:
+The macOS host archive (Apple Silicon; the kit builds none for Intel Macs), then:
 
 ```sh
 cp -R FreeRDP-Shadow.app /Applications/
