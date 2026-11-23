@@ -5,6 +5,19 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
+## Unreleased
+
+- **HiDPI, monitor by monitor.** *Display* has a new *HiDPI*: *Follow the OS (per monitor)*
+  (the default, and the client's own since FreeRDP 20261123.4: each monitor gets the session
+  in points at its own scale, which the system scales up), *Pixels* (every pixel, as clients
+  did before) or *Scale* N % (50 to 400, drawn to fit the window). *List…* under *Monitors*
+  now gives any monitor a setting of its own, and shows each one's scale (on Windows; on
+  other systems once the client lists it). A client older than FreeRDP 20261123.4 connects
+  as before, without them; the log says so.
+- **Sharp on Windows at 150 %.** freerdp-tk tells Windows that it draws for each monitor's
+  own DPI, so its window is no longer drawn at 100 % and stretched blurry on a scaled
+  display.
+
 ## 20261123.1
 
 - **macOS on Intel is no longer built; 20261122.3 is the last release with it.** On an

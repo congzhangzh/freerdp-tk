@@ -89,11 +89,26 @@ HARDWARE_FIRST, SOFTWARE_FIRST = "Hardware first", "Software first"
 DECODINGS = (HARDWARE_FIRST, SOFTWARE_FIRST)
 ANY_GPU = "Automatic"  # else a line of the client's /codec-list, which starts with its id
 CODEC_FIRST = "/codec-first"
+# How a window on a display with more pixels than points (a Retina Mac, a 2x Wayland output,
+# Windows at 150 %) asks the server for its session (/sdl-hidpi). Following the OS is the
+# client's own default (points: the session in points at each monitor's own scale, which the
+# system scales up), so it passes nothing and older clients still connect. Pixels asks for
+# every pixel (what clients did before /sdl-hidpi); Scale for the points times N % (50 to
+# 400), drawn to fit the window. A monitor of /list:monitor can have a setting of its own
+# (Points among them, against a default of Pixels, say); "Same as default" is one that has
+# none.
+FOLLOW_OS, POINTS, PIXELS, SCALE = "Follow the OS (per monitor)", "Points", "Pixels", "Scale"
+HIDPI_MODES = (FOLLOW_OS, PIXELS, SCALE)
+SAME_AS_DEFAULT = "Same as default"
+OWN_MODES = (SAME_AS_DEFAULT, POINTS, PIXELS, SCALE)
+SDL_HIDPI = "/sdl-hidpi"
+MIN_SCALE, MAX_SCALE = 50, 400
 FIELDS = {  # name -> default; everything a saved connection stores
     "client": AUTO, "host": "", "port": "", "user": "", "domain": "", "gateway": "",
     "cert": "tofu", "fullscreen": False, "size": "1600x900", "dynamic": True,
     "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)",
-    "decoding": HARDWARE_FIRST, "gpu": ANY_GPU, "stats": False, "clipboard": True, "sound": True,
+    "decoding": HARDWARE_FIRST, "gpu": ANY_GPU, "hidpi": FOLLOW_OS, "hidpi_scale": "150",
+    "hidpi_monitors": "", "stats": False, "clipboard": True, "sound": True,
     "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
@@ -102,7 +117,8 @@ FIELDS = {  # name -> default; everything a saved connection stores
 PLACEHOLDERS = "%h host   %p port   %u user   %L a free local port   %% a %"
 WAIT_KINDS = (WAIT_PORT, WAIT_OUTPUT, WAIT_TIME)
 # Choices that the lists show translated; the form and the saved file keep them in English.
-SHOWN_CHOICES = (AUTO, *WAIT_KINDS, *MULTIMON_MODES, *DECODINGS, ANY_GPU, "(default)", "off")
+SHOWN_CHOICES = (AUTO, *WAIT_KINDS, *MULTIMON_MODES, *DECODINGS, ANY_GPU, *HIDPI_MODES,
+                 SAME_AS_DEFAULT, POINTS, "(default)", "off")
 WAIT_TIMEOUT = 30  # seconds to wait for the before command when no limit is set
 MAX_SECONDS = 86400  # threading's timeouts overflow far above this; nobody waits a day
 # Client exit codes that mean "try another password" (SDL3 client,
@@ -256,6 +272,42 @@ def codec_first_args(v: dict) -> list[str]:
     return [f"{CODEC_FIRST}:hardware:{gpu[1]}"] if gpu else []
 
 
+def scale_ok(scale: str) -> bool:
+    """Whether the client takes scale as its N in scale:N: a whole number, 50 to 400."""
+    scale = scale.strip()
+    return bool(re.fullmatch(r"[0-9]{2,3}", scale)) and MIN_SCALE <= int(scale) <= MAX_SCALE
+
+
+def hidpi_setting(mode: str, scale: str) -> str:
+    """The client's name of a HiDPI choice: points, pixels or scale:N."""
+    return {PIXELS: "pixels", SCALE: f"scale:{scale.strip()}"}.get(mode, "points")
+
+
+HIDPI_OWN = re.compile(r"([0-9]+):(points|pixels|scale:([0-9]+))")
+
+
+def hidpi_own(text: str) -> dict[str, str]:
+    """The monitors with a setting of their own, by their /list:monitor id, from the
+    saved "<id>:<setting>,..." (the client's own syntax); a part it would not take is
+    left out."""
+    own = {}
+    for part in text.split(","):
+        m = HIDPI_OWN.fullmatch(part.strip())
+        if m and (m[3] is None or scale_ok(m[3])):
+            own[m[1]] = m[2]
+    return own
+
+
+def hidpi_args(v: dict) -> list[str]:
+    """The client's /sdl-hidpi for the HiDPI choice and the monitors' own settings:
+    nothing when every monitor follows the OS (the client's default, points). The
+    own settings alone keep that default: /sdl-hidpi:2:scale:150."""
+    parts = [hidpi_setting(v["hidpi"], v["hidpi_scale"])] if v["hidpi"] in (PIXELS, SCALE) \
+        else []
+    parts += [f"{i}:{setting}" for i, setting in hidpi_own(v["hidpi_monitors"]).items()]
+    return [f"{SDL_HIDPI}:{','.join(parts)}"] if parts else []
+
+
 def list_decoders(client: str) -> list[str] | None:
     """The hardware video decoders the client's /codec-list names, a line each, its
     id first ("0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)" on
@@ -362,14 +414,92 @@ def client_start_error(client: str) -> str:
     return probe_client(client)[1]
 
 
-MONITOR_LINE = re.compile(  # "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors()
-    r"^\s*(\*?)\s*\[(\d+)\]\s*\[(.*)\]\s+(\d+x\d+)\s+(\+-?\d+\+-?\d+)\s*$")
+# "  * [1] [DELL U2720Q] 2560x1440\t+0+0" from sdl_list_monitors(); newer clients add the
+# monitor's OS scale, "\t150%" (SDL_GetDisplayContentScale)
+MONITOR_LINE = re.compile(r"^\s*(\*?)\s*\[(\d+)\]\s*\[(.*)\]\s+(\d+x\d+)\s+(\+-?\d+\+-?\d+)"
+                          r"(?:\s+(\d+(?:\.\d+)?)\s*%)?\s*$")
 
 
 def parse_monitors(output: str) -> list[dict]:
-    """The monitors in the output of the SDL client's /list:monitor."""
-    return [{"id": m[2], "name": m[3], "size": m[4], "at": m[5], "primary": m[1] == "*"}
+    """The monitors in the output of the SDL client's /list:monitor; "scale" is the OS
+    scale in per cent, None when the client does not say."""
+    return [{"id": m[2], "name": m[3], "size": m[4], "at": m[5], "primary": m[1] == "*",
+             "scale": round(float(m[6])) if m[6] else None}
             for m in map(MONITOR_LINE.match, output.splitlines()) if m]
+
+
+def dpi_at(x: int, y: int) -> int | None:
+    """Windows: the DPI of the monitor under the point (x, y), 96 at 100 %; None when it
+    cannot be told (no monitor there, a Windows before 8.1)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32, shcore = ctypes.windll.user32, ctypes.windll.shcore
+        user32.MonitorFromPoint.restype = wintypes.HMONITOR
+        user32.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+        monitor = user32.MonitorFromPoint(wintypes.POINT(x, y), 0)  # MONITOR_DEFAULTTONULL
+        dpi_x, dpi_y = wintypes.UINT(), wintypes.UINT()
+        if not monitor or shcore.GetDpiForMonitor(  # MDT_EFFECTIVE_DPI: the OS scale
+                monitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) != 0:
+            return None
+    except (AttributeError, OSError):
+        return None
+    return dpi_x.value or None
+
+
+def add_os_scales(monitors: list[dict]) -> list[dict]:
+    """Fill in the OS scale the client did not give, on Windows from the monitor under the
+    middle of each one (the client's coordinates are pixels there, as freerdp-tk's once it
+    is per-monitor DPI aware). Elsewhere it stays unknown."""
+    if not IS_WIN:
+        return monitors
+    for m in monitors:
+        at = re.fullmatch(r"\+(-?\d+)\+(-?\d+)", m["at"])
+        if m.get("scale") is None and at:
+            width, height = map(int, m["size"].split("x"))
+            dpi = dpi_at(int(at[1]) + width // 2, int(at[2]) + height // 2)
+            m["scale"] = round(dpi * 100 / 96) if dpi else None
+    return monitors
+
+
+PER_MONITOR_AWARE_V2 = -4  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+
+
+def set_dpi_awareness() -> bool:
+    """Windows: tell it that freerdp-tk draws for each monitor's own DPI, so the window is
+    sharp at 150 % rather than drawn at 96 DPI and stretched. Before Tk starts: it reads the
+    DPI once. True when it took; nothing off Windows, and a Windows before 10 (1703) without
+    the call keeps the old blur."""
+    if not IS_WIN:
+        return False
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        user32.SetProcessDpiAwarenessContext.restype = ctypes.c_int
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        return bool(user32.SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2))
+    except (AttributeError, OSError):
+        return False
+
+
+def match_tk_scaling(root: tk.Tk) -> float | None:
+    """Windows: Tk's points to pixels from the DPI of the monitor the window opens on (1.0
+    is 72 DPI; 2.08 is 150 %), so text and widgets have their size there. The factor set,
+    None when nothing was set (off Windows, an older Windows)."""
+    if not IS_WIN:
+        return None
+    try:
+        import ctypes
+        user32 = ctypes.windll.user32
+        user32.GetDpiForWindow.restype = ctypes.c_uint
+        user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
+        dpi = user32.GetDpiForWindow(root.winfo_id())
+    except (AttributeError, OSError):
+        return None
+    if not dpi:
+        return None
+    root.tk.call("tk", "scaling", dpi / 72)
+    return dpi / 72
 
 
 def list_monitors(client: str) -> tuple[list[dict], str]:
@@ -652,6 +782,7 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
     elif v["gfx"] != "(default)":
         args.append(f"/gfx:{v['gfx']}")
     args += codec_first_args(v)
+    args += hidpi_args(v)
     if v["stats"]:  # the SDL3 client's overlay: codec, frames per second, bandwidth, round trip
         args.append(STATS_ARG)
     args.append("+clipboard" if v["clipboard"] else "-clipboard")
@@ -673,31 +804,69 @@ def join_command(argv: list[str]) -> str:
     return subprocess.list2cmdline(argv) if IS_WIN else shlex.join(argv)
 
 
-def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str]) -> list[str] | None:
-    """Tick the monitors to use; their IDs, None when cancelled."""
+def pick_monitors(root: tk.Tk, monitors: list[dict], chosen: list[str],
+                  own: dict[str, str]) -> tuple[list[str], dict[str, str]] | None:
+    """Tick the monitors to use, and give any of them a HiDPI setting of its own (points,
+    pixels or scale:N, as the client names them). Returns their IDs and the own settings;
+    None when cancelled. A setting saved for a monitor this computer does not list stays."""
     top = tk.Toplevel(root)
     top.title(APP)
     top.transient(root)
     top.resizable(False, False)
     frame = ttk.Frame(top, padding=12)
     frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text=tr("Full screen on these monitors:")).pack(anchor="w", pady=(0, 4))
-    ticks = []
-    for m in monitors:
+    ttk.Label(frame, text=tr("Full screen on these monitors:")).grid(row=0, column=0,
+                                                                    sticky="w", pady=(0, 4))
+    ttk.Label(frame, text=tr("OS scale")).grid(row=0, column=1, sticky="w", padx=8)
+    ttk.Label(frame, text=tr("HiDPI of its own")).grid(row=0, column=2, columnspan=3,
+                                                       sticky="w")
+    names = {c: tr(c) for c in OWN_MODES}
+    back = {name: c for c, name in names.items()}
+    rows = []
+    for row, m in enumerate(monitors, start=1):
         var = tk.BooleanVar(value=m["id"] in chosen)
-        ticks.append((m["id"], var))
         text = tr("{id}: {name}, {size} at {at}", id=m["id"], name=m["name"] or tr("monitor"),
                   size=m["size"], at=m["at"])
         ttk.Checkbutton(frame, text=tr("{text} (primary)", text=text) if m["primary"] else text,
-                        variable=var).pack(anchor="w")
+                        variable=var).grid(row=row, column=0, sticky="w")
+        scale = m.get("scale")
+        ttk.Label(frame, text=f"{scale} %" if scale else tr("unknown"),
+                  foreground="" if scale else "gray").grid(row=row, column=1, sticky="w", padx=8)
+        setting = own.get(m["id"], "")
+        mode = {"points": POINTS, "pixels": PIXELS}.get(setting, SCALE if setting else
+                                                         SAME_AS_DEFAULT)
+        shown = tk.StringVar(value=names[mode])
+        percent = tk.StringVar(value=setting.removeprefix("scale:") if mode == SCALE else "150")
+        ttk.Combobox(frame, textvariable=shown, values=list(names.values()), state="readonly",
+                     width=16).grid(row=row, column=2, sticky="w", pady=1)
+        spin = ttk.Spinbox(frame, textvariable=percent, from_=MIN_SCALE, to=MAX_SCALE,
+                           increment=25, width=5)
+        spin.grid(row=row, column=3, sticky="w", padx=(4, 0))
+        ttk.Label(frame, text="%").grid(row=row, column=4, sticky="w")
+
+        def scale_state(*_, shown=shown, spin=spin):
+            spin.state(["!disabled"] if back.get(shown.get()) == SCALE else ["disabled"])
+
+        shown.trace_add("write", scale_state)
+        scale_state()
+        rows.append((m["id"], var, shown, percent))
     answer = []
 
     def ok(_=None):
-        answer.append([i for i, var in ticks if var.get()])
+        settings = {i: s for i, s in own.items() if i not in {r[0] for r in rows}}
+        for i, _, shown, percent in rows:
+            mode = back.get(shown.get(), SAME_AS_DEFAULT)
+            if mode == SCALE and not scale_ok(percent.get()):
+                messagebox.showerror(APP, tr("Monitor {id}: the scale is a whole number from "
+                                             "50 to 400.", id=i), parent=top)
+                return
+            if mode != SAME_AS_DEFAULT:
+                settings[i] = hidpi_setting(mode, percent.get())
+        answer.append(([i for i, var, _, _ in rows if var.get()], settings))
         top.destroy()
 
     buttons = ttk.Frame(frame)
-    buttons.pack(fill="x", pady=(10, 0))
+    buttons.grid(row=len(monitors) + 1, column=0, columnspan=5, sticky="ew", pady=(10, 0))
     ttk.Button(buttons, text=tr("Cancel"), command=top.destroy).pack(side="right")
     ttk.Button(buttons, text=tr("OK"), command=ok).pack(side="right", padx=4)
     top.bind("<Return>", ok)
@@ -1549,25 +1718,53 @@ class App(ttk.Frame):
         ttk.Label(f, text=tr("Full screen on just these (IDs from List{dots}); empty: as above",
                              dots=GLYPHS["dots"]),
                   foreground="gray").grid(row=6, column=1, sticky="w")
-        self._row(f, 7, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
+        hidpi = ttk.Frame(f)
+        self.hidpi_box = self._choices(hidpi, "hidpi", list(HIDPI_MODES), state="readonly",
+                                       width=28)
+        self.hidpi_box.pack(side="left")
+        self.hidpi_scale = ttk.Spinbox(hidpi, textvariable=self.vars["hidpi_scale"],
+                                       from_=MIN_SCALE, to=MAX_SCALE, increment=25, width=5)
+        self.hidpi_scale.pack(side="left", padx=(4, 0))
+        ttk.Label(hidpi, text="%").pack(side="left")
+        self._row(f, 7, tr("HiDPI"), hidpi, "hidpi", "hidpi_scale", "hidpi_monitors")
+        self.hidpi_note = ttk.Label(f, text="", foreground="gray")
+        self.hidpi_note.grid(row=8, column=1, sticky="w")
+        for key in ("hidpi", "hidpi_monitors"):
+            self.vars[key].trace_add("write", lambda *_: self._hidpi_state())
+        self._hidpi_state()
+        self._row(f, 9, tr("Graphics codec"), self._choices(f, "gfx", GFX_CHOICES,
                                                             state="readonly"),
                   "gfx")
-        self._row(f, 8, tr("Video decoding"), self._choices(f, "decoding", list(DECODINGS),
-                                                            state="readonly"),
+        self._row(f, 10, tr("Video decoding"), self._choices(f, "decoding", list(DECODINGS),
+                                                             state="readonly"),
                   "decoding")
         self.gpu_box = self._choices(f, "gpu", [ANY_GPU], state="readonly",
                                      postcommand=self._fill_gpus)
-        self._row(f, 9, tr("GPU"), self.gpu_box, "gpu")
+        self._row(f, 11, tr("GPU"), self.gpu_box, "gpu")
         self.gpu_note = ttk.Label(f, text="", foreground="gray")
-        self.gpu_note.grid(row=10, column=1, sticky="w")
+        self.gpu_note.grid(row=12, column=1, sticky="w")
         self.vars["decoding"].trace_add("write", lambda *_: self._gpu_state())
         self._gpu_state()
-        self._check(f, 11, tr("Show live stats"), "stats")
+        self._check(f, 13, tr("Show live stats"), "stats")
         keys = stats_keys()
         if keys:  # nothing rather than keys that may be wrong
             ttk.Label(f, text=tr("Show or hide them in a session: {keys}", keys=keys),
-                      foreground="gray").grid(row=12, column=1, sticky="w")
+                      foreground="gray").grid(row=14, column=1, sticky="w")
         return f
+
+    def _hidpi_state(self):
+        """The scale is only Scale's; the note says which monitors have a setting of
+        their own, given under Monitors, List{dots}."""
+        scale = self.vars["hidpi"].get() == SCALE
+        self.hidpi_scale.state(["!disabled"] if scale else ["disabled"])
+        own = hidpi_own(self.vars["hidpi_monitors"].get())
+        if own:
+            text = tr("Monitors with their own: {list}",
+                      list=", ".join(f"{i}: {setting}" for i, setting in own.items()))
+        else:
+            text = tr("Each monitor goes by its own density; List{dots} above gives one a "
+                      "setting of its own", dots=GLYPHS["dots"])
+        self.hidpi_note.configure(text=text)
 
     def _gpu_state(self):
         """The GPU picks a hardware decoder, so it has nothing to pick with Software first."""
@@ -1812,6 +2009,15 @@ class App(ttk.Frame):
                                     "its GPU to Automatic, or pick a newer client.",
                                     name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
+        if v["hidpi"] == SCALE and not scale_ok(v["hidpi_scale"]):
+            messagebox.showerror(APP, tr("{name}: the HiDPI scale is a whole number from 50 to "
+                                         "400.", name=name))
+            return False
+        if hidpi_args(v) and not self._knows(client, SDL_HIDPI):
+            # its windows ask for every pixel, as Pixels does; it would stop on the argument
+            self._log(f"{name}: {client} has no {SDL_HIDPI} (FreeRDP 20261123.4 and newer); "
+                      "connecting without the HiDPI settings")
+            v = {**v, "hidpi": FOLLOW_OS, "hidpi_monitors": ""}
         if no_monitor((self.winfo_screenwidth(), self.winfo_screenheight()), client):
             messagebox.showerror(APP, tr("{name}: this desktop has no monitor right now (its "
                                          "screen is 0x0), so the client has nowhere to show "
@@ -2205,7 +2411,8 @@ class App(ttk.Frame):
             self.vars["client"].set(path)
 
     def _pick_monitors(self):
-        """List…: ask the client which monitors it sees, then tick the ones to use."""
+        """List…: ask the client which monitors it sees, then tick the ones to use and
+        give any its own HiDPI setting."""
         client = self._resolve_client(self.vars["client"].get())
         if not client:
             messagebox.showerror(APP, tr("No FreeRDP SDL client found to list the monitors."))
@@ -2228,9 +2435,12 @@ class App(ttk.Frame):
                                              "output)."))
                 return
             chosen = re.findall(r"\d+", self.vars["monitors"].get())
-            picked = pick_monitors(self.root, monitors, chosen)
+            own = hidpi_own(self.vars["hidpi_monitors"].get())
+            picked = pick_monitors(self.root, add_os_scales(monitors), chosen, own)
             if picked is not None:
-                self.vars["monitors"].set(",".join(picked))
+                self.vars["monitors"].set(",".join(picked[0]))
+                self.vars["hidpi_monitors"].set(",".join(f"{i}:{setting}"
+                                                         for i, setting in picked[1].items()))
 
         wait()
 
@@ -2242,7 +2452,9 @@ class App(ttk.Frame):
 
 def main():
     move_client_hotkeys()
+    set_dpi_awareness()  # Windows, before Tk reads the DPI
     root = tk.Tk()
+    match_tk_scaling(root)
     root.title(f"{APP} {__version__}")  # not "FreeRDP": the session window's ("FreeRDP: host")
     root.minsize(760, 640)
     style = ttk.Style(root)

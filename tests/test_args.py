@@ -41,11 +41,147 @@ def test_monitor_list_is_parsed():
               "       [5] [] 1920x1080\t+1512+-200\n")
     assert app.parse_monitors(output) == [
         {"id": "1", "name": "Built-in Retina Display", "size": "1512x982", "at": "+0+0",
-         "primary": True},
+         "primary": True, "scale": None},
         {"id": "4", "name": "DELL U2720Q", "size": "2560x1440", "at": "+-2560+0",
-         "primary": False},
-        {"id": "5", "name": "", "size": "1920x1080", "at": "+1512+-200", "primary": False}]
+         "primary": False, "scale": None},
+        {"id": "5", "name": "", "size": "1920x1080", "at": "+1512+-200", "primary": False,
+         "scale": None}]
     assert app.parse_monitors("listing 0 monitors:\n") == []
+
+
+# Two monitors of different OS scale, as a newer client lists them (a trailing N %)
+TWO_SCALES = ("listing 2 monitors:\n"
+              "     * [1] [Built-in Retina Display] 1512x982\t+0+0\t200%\n"
+              "       [2] [DELL U2720Q] 2560x1440\t+1512+0\t100%\n")
+
+
+def test_the_monitor_list_gives_each_os_scale():
+    monitors = app.parse_monitors(TWO_SCALES)
+    assert [(m["id"], m["scale"]) for m in monitors] == [("1", 200), ("2", 100)]
+    assert app.parse_monitors("  [3] [X] 1920x1080\t+0+0\t150.0 %")[0]["scale"] == 150
+
+
+def test_following_the_os_passes_no_hidpi():
+    """Following the OS is the client's default (points, each monitor at its own scale):
+    nothing is passed, so a client from before /sdl-hidpi still connects."""
+    assert app.FIELDS["hidpi"] == app.FOLLOW_OS and app.FIELDS["hidpi_monitors"] == ""
+    assert not any(a.startswith("/sdl-hidpi") for a in build_args({"host": "h"}, ""))
+    assert app.hidpi_args({**app.FIELDS, "hidpi_scale": "175"}) == []
+
+
+@pytest.mark.parametrize("hidpi, scale, own, arg", [
+    (app.PIXELS, "150", "", "/sdl-hidpi:pixels"),
+    (app.SCALE, "175", "", "/sdl-hidpi:scale:175"),
+    (app.SCALE, " 50 ", "", "/sdl-hidpi:scale:50"),
+    (app.FOLLOW_OS, "150", "2:scale:150", "/sdl-hidpi:2:scale:150"),  # the default stays
+    (app.PIXELS, "150", "1:points,2:scale:125", "/sdl-hidpi:pixels,1:points,2:scale:125"),
+    # parts the client would not take are left out, not passed for it to stop on
+    (app.FOLLOW_OS, "150", "2:scale:999,x:pixels,3:huge,,4:pixels", "/sdl-hidpi:4:pixels"),
+])
+def test_hidpi_passes_sdl_hidpi(hidpi, scale, own, arg):
+    v = {"host": "h", "hidpi": hidpi, "hidpi_scale": scale, "hidpi_monitors": own}
+    assert [a for a in build_args(v, "") if a.startswith("/sdl-hidpi")] == [arg]
+
+
+def test_each_monitor_of_its_own_scale_gets_its_setting():
+    """From the two monitors of a /list:monitor, the Retina one asks for every pixel and
+    the other one follows the default: only the first is named."""
+    monitors = app.parse_monitors(TWO_SCALES)
+    own = {m["id"]: "pixels" for m in monitors if m["scale"] > 100}
+    v = {"host": "h", "monitors": ",".join(m["id"] for m in monitors),
+         "hidpi_monitors": ",".join(f"{i}:{s}" for i, s in own.items())}
+    args = build_args(v, "")
+    assert {"/multimon", "/monitors:1,2", "/sdl-hidpi:1:pixels"} <= set(args)
+
+
+@pytest.mark.parametrize("scale, ok", [("50", True), ("400", True), ("150", True),
+                                       ("49", False), ("401", False), ("1.5", False),
+                                       ("", False), ("٣٠٠", False), ("0150", False)])
+def test_scale_ok(scale, ok):
+    assert app.scale_ok(scale) is ok
+
+
+class FakeUser32:
+    """What SetProcessDpiAwarenessContext and GetDpiForWindow see; returns as Windows."""
+
+    def __init__(self, answer=1, dpi=144):
+        self.calls, self.answer, self.dpi = [], answer, dpi
+
+        class Function:
+            def __init__(this, name, result):
+                this.name, this.result = name, result
+
+            def __call__(this, *args):
+                self.calls.append((this.name, args))
+                return this.result() if callable(this.result) else this.result
+
+        self.SetProcessDpiAwarenessContext = Function("awareness", lambda: self.answer)
+        self.GetDpiForWindow = Function("dpi", lambda: self.dpi)
+
+
+class FakeWindll:
+    def __init__(self, user32):
+        self.user32 = user32
+
+
+def test_windows_is_told_freerdp_tk_is_per_monitor_dpi_aware(monkeypatch):
+    import ctypes
+    user32 = FakeUser32()
+    monkeypatch.setattr(ctypes, "windll", FakeWindll(user32), raising=False)
+    monkeypatch.setattr(app, "IS_WIN", False)
+    assert app.set_dpi_awareness() is False and user32.calls == []  # a no-op off Windows
+    monkeypatch.setattr(app, "IS_WIN", True)
+    assert app.set_dpi_awareness() is True
+    assert user32.calls == [("awareness", (-4,))]  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+    user32.answer = 0  # it refuses (set before, by a manifest say): nothing more to do
+    assert app.set_dpi_awareness() is False
+
+
+def test_an_old_windows_without_the_call_is_left_alone(monkeypatch):
+    import ctypes
+    monkeypatch.setattr(app, "IS_WIN", True)
+    monkeypatch.setattr(ctypes, "windll", FakeWindll(object()), raising=False)  # no such call
+    assert app.set_dpi_awareness() is False
+    root = type("Root", (), {"winfo_id": lambda self: 42})()
+    assert app.match_tk_scaling(root) is None
+
+
+def test_tk_scaling_follows_the_monitor_dpi(monkeypatch):
+    import ctypes
+    user32 = FakeUser32(dpi=144)  # 150 %
+    monkeypatch.setattr(ctypes, "windll", FakeWindll(user32), raising=False)
+    set_to = []
+
+    class Root:
+        tk = type("Tcl", (), {"call": lambda self, *args: set_to.append(args)})()
+
+        def winfo_id(self):
+            return 42
+
+    monkeypatch.setattr(app, "IS_WIN", False)
+    assert app.match_tk_scaling(Root()) is None and set_to == []
+    monkeypatch.setattr(app, "IS_WIN", True)
+    assert app.match_tk_scaling(Root()) == 2.0
+    assert set_to == [("tk", "scaling", 2.0)] and user32.calls == [("dpi", (42,))]
+    user32.dpi = 0  # Windows could not tell: Tk keeps its own
+    assert app.match_tk_scaling(Root()) is None and len(set_to) == 1
+
+
+def test_windows_fills_in_the_os_scale_the_client_does_not_give(monkeypatch):
+    """An older client lists no scale; on Windows it comes from the monitor under the
+    middle of each one, and a scale the client gave is kept."""
+    asked = []
+    monkeypatch.setattr(app, "dpi_at", lambda x, y: asked.append((x, y)) or 144)
+    output = ("     * [1] [A] 1920x1080\t+0+0\n"
+              "       [2] [B] 2560x1440\t+-2560+0\t125%\n")
+    monkeypatch.setattr(app, "IS_WIN", False)
+    assert [m["scale"] for m in app.add_os_scales(app.parse_monitors(output))] == [None, 125]
+    assert asked == []
+    monkeypatch.setattr(app, "IS_WIN", True)
+    assert [m["scale"] for m in app.add_os_scales(app.parse_monitors(output))] == [150, 125]
+    assert asked == [(960, 540)]
+    monkeypatch.setattr(app, "dpi_at", lambda x, y: None)
+    assert app.add_os_scales(app.parse_monitors(output))[0]["scale"] is None
 
 
 def test_chosen_monitors():

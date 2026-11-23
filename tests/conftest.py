@@ -17,7 +17,8 @@ from keyring.errors import PasswordDeleteError
 # $FAKE_255=silent it exits with 255 and says nothing, as FreeRDP's SDL client
 # does when SDL cannot start its video (a desktop with no monitor); with
 # $FAKE_255=said, it says a line first. /codec-list prints $FAKE_DECODERS (none by
-# default); $FAKE_NO_CODEC_FIRST: a client from before /codec-first. $FAKE_SAY is a
+# default); $FAKE_NO_CODEC_FIRST: a client from before /codec-first, $FAKE_NO_HIDPI one
+# from before /sdl-hidpi. $FAKE_SAY is a
 # line it says once connected, and $FAKE_STAY the seconds it then stays.
 FAKE_CLIENT = """
 import json, os, sys
@@ -36,6 +37,8 @@ if sys.argv[1:] == ["/help"]:  # FreeRDP 3's help; $FAKE_NO_STATS: an older one,
     print("    /args-from:<file>|stdin|fd:<number>|env:<name>")
     if not os.environ.get("FAKE_NO_CODEC_FIRST"):
         print("    /codec-first:hardware[:<id>[,<id>...]]|software  Which video decoder goes first")
+    if not os.environ.get("FAKE_NO_HIDPI"):
+        print("    /sdl-hidpi:points|pixels|scale:<N>[,<id>:points|pixels|scale:<N>...]")
     if not os.environ.get("FAKE_NO_STATS"):
         print("    +sdl-info                         Enable the stats and info overlay")
     sys.exit(0)

@@ -369,18 +369,22 @@ def test_list_and_pick_monitors(make_ui, fake_client, monkeypatch):
     from freerdp_tk import app
     shown = []
 
-    def pick(root, monitors, chosen):
-        shown.append(([(m["id"], m["name"], m["primary"]) for m in monitors], chosen))
-        return ["2"]
+    def pick(root, monitors, chosen, own):
+        shown.append(([(m["id"], m["name"], m["primary"]) for m in monitors], chosen, own))
+        return ["2"], {"2": "scale:150", "7": "pixels"}
 
     monkeypatch.setattr(app, "pick_monitors", pick)
     ui = make_ui()
     ui.vars["monitors"].set("1")
+    ui.vars["hidpi_monitors"].set("7:pixels")  # saved for a monitor not here now
     click(ui, button(ui, f"List{app.GLYPHS['dots']}"))
     pump(ui, lambda: ui.vars["monitors"].get() == "2")
     assert shown == [([("1", "Built-in Retina Display", True), ("2", "DELL U2720Q", False)],
-                      ["1"])]
+                      ["1"], {"7": "pixels"})]
+    assert ui.vars["hidpi_monitors"].get() == "2:scale:150,7:pixels"
     assert "/monitors:2" in ui.preview.get("1.0", "end")
+    assert "/sdl-hidpi:2:scale:150,7:pixels" in ui.preview.get("1.0", "end")
+    assert ui.hidpi_note.cget("text") == "Monitors with their own: 2: scale:150, 7: pixels"
     assert button(ui, f"List{app.GLYPHS['dots']}").instate(["!disabled"])
 
 
@@ -409,22 +413,83 @@ def test_no_monitors_listed(make_ui, fake_client, monkeypatch):
     assert "found no monitors" in errors[0] and "listing 0 monitors:" in log_text(ui)
 
 
+def in_rows(widgets, kind):
+    """The dialog's widgets of a kind, top row first."""
+    return sorted((w for w in widgets if w.winfo_class() == kind),
+                  key=lambda w: int(w.grid_info()["row"]))
+
+
+def closing_on_failure(ui, answer, failed):
+    """Run answer; a failure closes the dialog (else it waits for ever) and is kept."""
+    def run():
+        try:
+            answer()
+        except Exception as e:  # noqa: BLE001 - reported by the test
+            failed.append(e)
+            for w in widgets(ui):
+                if w.winfo_class() == "Toplevel":
+                    w.destroy()
+    return run
+
+
 def test_the_monitor_dialog(make_ui):
     from freerdp_tk import app
     ui = make_ui()
-    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0\n    [3] [B] 1920x1080\t+1920+0")
+    failed = []
+    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0\t200%\n"
+                                  "    [3] [B] 1920x1080\t+1920+0")
 
     def answer():
         dialog = next(w for w in widgets(ui) if w.winfo_class() == "Toplevel")
-        boxes = [w for w in widgets(ui) if w.winfo_class() == "TCheckbutton"
-                 and w.winfo_toplevel() is dialog]
+        mine = [w for w in widgets(ui) if w.winfo_toplevel() is dialog]
+        texts = [w.cget("text") for w in mine if w.winfo_class() == "TLabel"]
+        assert "200 %" in texts and "unknown" in texts  # 3's client gave no scale
+        boxes = [w for w in mine if w.winfo_class() == "TCheckbutton"]
         click(ui, next(b for b in boxes if b.cget("text").startswith("3:")))  # tick 3
         click(ui, next(b for b in boxes if b.cget("text").startswith("1:")))  # untick 1
-        click(ui, next(w for w in widgets(ui) if w.winfo_class() == "TButton"
-                       and w.winfo_toplevel() is dialog and w.cget("text") == "OK"))
+        own, spins = in_rows(mine, "TCombobox"), in_rows(mine, "TSpinbox")
+        assert [o.get() for o in own] == ["Pixels", "Same as default"]
+        assert [s.instate(["disabled"]) for s in spins] == [True, True]
+        own[0].set("Same as default")  # 1 goes back to the default
+        own[1].set("Scale")  # 3 gets scale:175
+        ui.root.update()
+        assert spins[1].instate(["!disabled"])
+        spins[1].set("175")
+        click(ui, next(w for w in mine if w.winfo_class() == "TButton"
+                       and w.cget("text") == "OK"))
 
-    ui.root.after(200, answer)
-    assert app.pick_monitors(ui.root, monitors, ["1"]) == ["3"]
+    ui.root.after(200, closing_on_failure(ui, answer, failed))
+    picked = app.pick_monitors(ui.root, monitors, ["1"], {"1": "pixels", "9": "points"})
+    assert not failed, failed
+    assert picked == (["3"], {"9": "points", "3": "scale:175"})  # 9, not here, keeps its own
+
+
+def test_the_monitor_dialog_keeps_a_scale_it_cannot_pass(make_ui, monkeypatch):
+    """A scale outside 50 to 400 says so and keeps the dialog open."""
+    from freerdp_tk import app
+    ui = make_ui()
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror",
+                        lambda title, text, **_: errors.append(text))
+    monitors = app.parse_monitors("  * [1] [A] 1920x1080\t+0+0")
+    failed = []
+
+    def answer():
+        dialog = next(w for w in widgets(ui) if w.winfo_class() == "Toplevel")
+        mine = [w for w in widgets(ui) if w.winfo_toplevel() is dialog]
+        ok = next(w for w in mine if w.winfo_class() == "TButton" and w.cget("text") == "OK")
+        next(w for w in mine if w.winfo_class() == "TCombobox").set("Scale")
+        next(w for w in mine if w.winfo_class() == "TSpinbox").set("500")
+        click(ui, ok)
+        assert errors == ["Monitor 1: the scale is a whole number from 50 to 400."]
+        assert dialog.winfo_exists()
+        next(w for w in mine if w.winfo_class() == "TSpinbox").set("400")
+        click(ui, ok)
+
+    ui.root.after(200, closing_on_failure(ui, answer, failed))
+    picked = app.pick_monitors(ui.root, monitors, [], {})
+    assert not failed, failed
+    assert picked == ([], {"1": "scale:400"})
 
 
 @pytest.mark.parametrize("mac, keys", [(False, "Right Alt + Right Shift + I"),
@@ -610,3 +675,56 @@ def test_the_live_view_shows_the_decoder_that_runs(make_ui, fake_client, monkeyp
     assert ui.decoder_note.cget("text") == f"{session.label}: {note}"
     pump(ui, lambda: not ui.sessions)
     assert ui.decoder_note.cget("text") == ""
+
+
+def test_the_hidpi_choice(make_ui, fake_client):
+    """Display: HiDPI follows the OS by default and passes nothing; Pixels and Scale N %
+    pass /sdl-hidpi, the scale only taken with Scale."""
+    from freerdp_tk import app
+    ui = make_ui()
+    preview = lambda: ui.preview.get("1.0", "end")
+    texts = [w.cget("text") for w in widgets(ui) if w.winfo_class() == "TLabel"]
+    assert "HiDPI" in texts
+    assert ui.hidpi_box.get() == "Follow the OS (per monitor)"
+    assert list(ui.hidpi_box.cget("values")) == ["Follow the OS (per monitor)", "Pixels", "Scale"]
+    assert ui.hidpi_scale.instate(["disabled"])
+    assert ui.hidpi_note.cget("text").startswith("Each monitor goes by its own density")
+    pump(ui, lambda: "/v:" in preview() or "/cert:" in preview())
+    assert "/sdl-hidpi" not in preview()
+    ui.hidpi_box.set("Pixels")
+    pump(ui, lambda: "/sdl-hidpi:pixels" in preview())
+    assert ui.vars["hidpi"].get() == app.PIXELS
+    ui.hidpi_box.set("Scale")
+    ui.hidpi_scale.set("175")
+    pump(ui, lambda: "/sdl-hidpi:scale:175" in preview())
+    assert ui.hidpi_scale.instate(["!disabled"])
+
+
+def test_connect_says_when_the_hidpi_scale_cannot_be_passed(make_ui, fake_client, monkeypatch):
+    from freerdp_tk import app
+    errors = []
+    monkeypatch.setattr(app.messagebox, "showerror", lambda title, text: errors.append(text))
+    ui = make_ui()
+    v = {"host": "rdp.example.com", "hidpi": app.SCALE, "hidpi_scale": "40"}
+    assert ui._launch("demo", v, "s3cret!") is False
+    assert errors == ["demo: the HiDPI scale is a whole number from 50 to 400."]
+    assert not fake_client.exists()
+
+
+@pytest.mark.parametrize("old", [False, True])
+def test_hidpi_reaches_the_client_unless_it_is_too_old(make_ui, fake_client, monkeypatch,
+                                                       old):
+    """The client gets /sdl-hidpi; one from before it would stop on it, so it connects
+    without, as before (every pixel), and the log says so."""
+    from freerdp_tk import app
+    if old:
+        monkeypatch.setenv("FAKE_NO_HIDPI", "1")
+    ui = make_ui()
+    v = {"host": "rdp.example.com", "hidpi": app.PIXELS, "hidpi_monitors": "2:scale:150"}
+    assert ui._launch("demo", v, "s3cret!") is True
+    pump(ui, fake_client.exists)
+    stdin = json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
+    hidpi = [a for a in stdin if a.startswith("/sdl-hidpi")]
+    assert hidpi == ([] if old else ["/sdl-hidpi:pixels,2:scale:150"])
+    said = "has no /sdl-hidpi (FreeRDP 20261123.4 and newer); connecting without the HiDPI"
+    assert (said in log_text(ui)) is old

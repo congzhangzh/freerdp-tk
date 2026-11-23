@@ -103,6 +103,32 @@ TEXTS = {
         # dialogs
         "Full screen on these monitors:": "在这些显示器上全屏：",
         "monitor": "显示器",
+        "Follow the OS (per monitor)":
+            "跟随系统（按显示器）",
+        "Points":
+            "点",
+        "Pixels":
+            "像素",
+        "Scale":
+            "缩放",
+        "Same as default":
+            "与默认相同",
+        "HiDPI":
+            "高分屏 (HiDPI)",
+        "Monitors with their own: {list}":
+            "有自己设置的显示器：{list}",
+        "Each monitor goes by its own density; List{dots} above gives one a setting of its own":
+            "每台显示器按自己的像素密度；上面的“列出{dots}”可给某台单独设置",
+        "OS scale":
+            "系统缩放",
+        "HiDPI of its own":
+            "单独的 HiDPI",
+        "unknown":
+            "未知",
+        "Monitor {id}: the scale is a whole number from 50 to 400.":
+            "显示器 {id}：缩放须为 50 到 400 的整数。",
+        "{name}: the HiDPI scale is a whole number from 50 to 400.":
+            "{name}：HiDPI 缩放须为 50 到 400 的整数。",
         "{id}: {name}, {size} at {at}": "{id}：{name}，{size}，位置 {at}",
         "{text} (primary)": "{text}（主显示器）",
         "Cancel": "取消",
@@ -323,6 +349,32 @@ TEXTS = {
     "ja": {
         "Full screen on these monitors:": "次のモニターでフルスクリーン:",
         "monitor": "モニター",
+        "Follow the OS (per monitor)":
+            "OS に従う（モニターごと）",
+        "Points":
+            "ポイント",
+        "Pixels":
+            "ピクセル",
+        "Scale":
+            "拡大縮小",
+        "Same as default":
+            "既定と同じ",
+        "HiDPI":
+            "HiDPI",
+        "Monitors with their own: {list}":
+            "個別設定のあるモニター: {list}",
+        "Each monitor goes by its own density; List{dots} above gives one a setting of its own":
+            "各モニターはそれぞれの密度に従います。上の「一覧{dots}」で個別に設定できます",
+        "OS scale":
+            "OS の拡大率",
+        "HiDPI of its own":
+            "個別の HiDPI",
+        "unknown":
+            "不明",
+        "Monitor {id}: the scale is a whole number from 50 to 400.":
+            "モニター {id}: 拡大率は 50 から 400 の整数です。",
+        "{name}: the HiDPI scale is a whole number from 50 to 400.":
+            "{name}: HiDPI の拡大率は 50 から 400 の整数です。",
         "{id}: {name}, {size} at {at}": "{id}: {name}、{size}、位置 {at}",
         "{text} (primary)": "{text}（メイン）",
         "Cancel": "キャンセル",
@@ -537,6 +589,32 @@ TEXTS = {
     "fr": {
         "Full screen on these monitors:": "Plein écran sur ces écrans :",
         "monitor": "écran",
+        "Follow the OS (per monitor)":
+            "Suivre le système (par écran)",
+        "Points":
+            "Points",
+        "Pixels":
+            "Pixels",
+        "Scale":
+            "Échelle",
+        "Same as default":
+            "Comme par défaut",
+        "HiDPI":
+            "HiDPI",
+        "Monitors with their own: {list}":
+            "Écrans avec leur propre réglage : {list}",
+        "Each monitor goes by its own density; List{dots} above gives one a setting of its own":
+            "Chaque écran suit sa propre densité ; Lister{dots} ci-dessus lui donne un réglage à lui",
+        "OS scale":
+            "Échelle du système",
+        "HiDPI of its own":
+            "HiDPI propre",
+        "unknown":
+            "inconnue",
+        "Monitor {id}: the scale is a whole number from 50 to 400.":
+            "Écran {id} : l'échelle est un nombre entier de 50 à 400.",
+        "{name}: the HiDPI scale is a whole number from 50 to 400.":
+            "{name} : l'échelle HiDPI est un nombre entier de 50 à 400.",
         "{id}: {name}, {size} at {at}": "{id} : {name}, {size} à {at}",
         "{text} (primary)": "{text} (principal)",
         "Cancel": "Annuler",
