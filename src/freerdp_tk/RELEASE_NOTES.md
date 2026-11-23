@@ -18,6 +18,7 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 - **Sharp on Windows at 150 %.** freerdp-tk tells Windows that it draws for each monitor's
   own DPI, so its window is no longer drawn at 100 % and stretched blurry on a scaled
   display.
+- Under the hood: the bundled client is FreeRDP 20261123.6 (rdp-release-kit 20261123.5).
 
 ## 20261123.1
 
