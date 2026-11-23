@@ -54,7 +54,7 @@ def pick(ui, name):
 
 
 def on_disk(ui):
-    return json.loads(ui.store.read_text())
+    return json.loads(ui.store.read_text(encoding="utf-8"))
 
 
 def test_a_change_lights_up_and_can_be_typed_away(ui):

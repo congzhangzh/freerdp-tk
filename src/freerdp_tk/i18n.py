@@ -69,7 +69,8 @@ def system_language() -> str:
     if sys.platform == "darwin":
         try:
             out = subprocess.run(["defaults", "read", "-g", "AppleLanguages"],
-                                 capture_output=True, text=True, timeout=5).stdout
+                                 capture_output=True, text=True, encoding="utf-8",
+                                 errors="replace", timeout=5).stdout
         except (OSError, subprocess.SubprocessError):
             return ""
         first = out.strip("() \n").split(",")[0]  # ("zh-Hans-CN", "en-CN")

@@ -39,7 +39,7 @@ def connect_done(ui, record) -> list[str]:
     """Wait for the client to have run; the arguments it got."""
     pump(ui, lambda: record.exists() and ui.running_list.size() == 0)
     settle(ui)
-    return json.loads(record.read_text())["stdin"].splitlines()
+    return json.loads(record.read_text(encoding="utf-8"))["stdin"].splitlines()
 
 
 def no_prompt(*_):
@@ -61,8 +61,9 @@ def test_saved_once_then_used_by_the_next_window(make_ui, fake_client, memory_ke
     click(ui, button(ui, "Save"))
     settle(ui)
     assert memory_keyring.items == {credentials.key(LAB): "s3cret!"}
-    assert "s3cret" not in ui.store.read_text()  # the file has the flag, not the password
-    assert json.loads(ui.store.read_text())["lab"]["remember_password"] is True
+    # the file has the flag, not the password
+    assert "s3cret" not in ui.store.read_text(encoding="utf-8")
+    assert json.loads(ui.store.read_text(encoding="utf-8"))["lab"]["remember_password"] is True
 
     again = make_ui()  # as after a restart: nothing in memory
     monkeypatch.setattr(app, "ask_password", no_prompt)
@@ -95,7 +96,7 @@ def test_the_prompt_unticked_saves_nothing_and_is_remembered(make_ui, fake_clien
     assert "/p:pw1" in connect(ui, fake_client)
     assert memory_keyring.items == {}
     assert ui.vars["remember_password"].get() is False
-    assert json.loads(ui.store.read_text())["lab"]["remember_password"] is False
+    assert json.loads(ui.store.read_text(encoding="utf-8"))["lab"]["remember_password"] is False
 
 
 def test_a_new_password_typed_into_the_form_replaces_the_saved_one(make_ui, fake_client,
@@ -201,7 +202,7 @@ def test_a_rejected_saved_password_is_asked_again_and_replaced(make_ui, fake_cli
     ui = make_ui()
     fill(ui, "lab")
     click(ui, button(ui, "Connect"))
-    pump(ui, lambda: fake_client.exists() and "/p:new" in fake_client.read_text()
+    pump(ui, lambda: fake_client.exists() and "/p:new" in fake_client.read_text(encoding="utf-8")
          and ui.running_list.size() == 0)
     assert len(asked) == 1 and "did not accept the password for alice on lab" in asked[0][0]
     assert memory_keyring.items == {credentials.key(LAB): "new"}

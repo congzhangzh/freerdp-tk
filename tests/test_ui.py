@@ -12,7 +12,7 @@ from helpers import (button, click, entry_for, has_xdotool, log_text, pump, type
 
 def check_session(ui, record):
     pump(ui, lambda: ui.running_list.size() == 0)
-    got = json.loads(record.read_text())
+    got = json.loads(record.read_text(encoding="utf-8"))
     assert got["argv"][1:] == ["/args-from:stdin"]  # nothing secret in the process list
     lines = got["stdin"].splitlines()
     assert {"/v:rdp.example.com", "/u:alice", "/p:s3cret!"} <= set(lines)
@@ -51,7 +51,7 @@ def test_save_and_reload_a_connection(make_ui, fake_client, home):
     type_into(ui, entry_for(ui, ui.password), "s3cret!")
     click(ui, button(ui, "Save"))
     assert ui.saved_list.get(0, "end") == ("lab",)
-    stored = ui.store.read_text()
+    stored = ui.store.read_text(encoding="utf-8")
     assert ui.store.is_relative_to(home)  # the throwaway one, not the real profiles
     assert "rdp.example.com" in stored and "s3cret" not in stored  # never on disk
 
@@ -64,7 +64,7 @@ def program(path):
     from freerdp_tk import app
     path = path.with_name(path.name + app.EXE)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("")
+    path.write_text("", encoding="utf-8")
     path.chmod(0o755)
     return str(path)
 
@@ -229,7 +229,8 @@ def test_auto_saved_by_an_older_version_is_still_auto(make_ui, fake_client):
     from freerdp_tk import app
     ui = make_ui()
     ui.store.parent.mkdir(parents=True, exist_ok=True)
-    ui.store.write_text(json.dumps({"lab": {"host": "h", "client": app.OLD_AUTO}}))
+    ui.store.write_text(json.dumps({"lab": {"host": "h", "client": app.OLD_AUTO}}),
+                        encoding="utf-8")
     assert make_ui().saved["lab"]["client"] == app.AUTO
 
 
@@ -263,7 +264,8 @@ def test_a_client_saved_from_an_older_release_becomes_auto(make_ui, fake_client,
     ui = make_ui()
     ui.store.parent.mkdir(parents=True, exist_ok=True)
     ui.store.write_text(json.dumps({"lab": {"host": "h", "client": old},
-                                    "mine": {"host": "h", "client": "/usr/bin/sdl-freerdp3"}}))
+                                    "mine": {"host": "h", "client": "/usr/bin/sdl-freerdp3"}}),
+                        encoding="utf-8")
     again = make_ui()
     assert again.saved["lab"]["client"] == app.AUTO
     assert again.saved["mine"]["client"] == "/usr/bin/sdl-freerdp3"
@@ -275,7 +277,7 @@ def test_a_client_saved_from_an_older_release_becomes_auto(make_ui, fake_client,
     assert again.name.get() == "lab"
     assert again.vars["client"].get() == app.AUTO and not again._changed()
     click(again, button(again, "Save"))
-    assert json.loads(again.store.read_text())["lab"]["client"] == app.AUTO
+    assert json.loads(again.store.read_text(encoding="utf-8"))["lab"]["client"] == app.AUTO
 
 
 def test_choosing_the_wheel_client_saves_auto(make_ui, fake_client, home, monkeypatch):
@@ -293,7 +295,7 @@ def test_choosing_the_wheel_client_saves_auto(make_ui, fake_client, home, monkey
     type_into(ui, entry_for(ui, ui.name), "lab")
     type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
     click(ui, button(ui, "Save"))
-    assert json.loads(ui.store.read_text())["lab"]["client"] == app.AUTO
+    assert json.loads(ui.store.read_text(encoding="utf-8"))["lab"]["client"] == app.AUTO
     assert ui.vars["client"].get() == app.AUTO and not ui._changed()
     assert ui._resolve_client(app.AUTO) == own  # auto still runs it
 
@@ -452,7 +454,7 @@ def test_show_live_stats_is_saved_per_connection(make_ui, fake_client, monkeypat
     pump(ui, lambda: not ui.vars["stats"].get())
     assert "+sdl-info" not in ui.preview.get("1.0", "end")
     click(ui, button(ui, "Save"))
-    stored = json.loads(ui.store.read_text())
+    stored = json.loads(ui.store.read_text(encoding="utf-8"))
     assert stored["lab"]["stats"] is True and stored["other"]["stats"] is False
     again = make_ui()
     again.saved_list.selection_set(again.visible.index("lab"))
@@ -464,7 +466,7 @@ def test_no_keys_shown_when_the_client_settings_cannot_be_read(make_ui):
     from freerdp_tk import app
     path = app.client_prefs_file()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("{ not json")
+    path.write_text("{ not json", encoding="utf-8")
     ui = make_ui()
     texts = [w.cget("text") for w in widgets(ui) if w.winfo_class() == "TLabel"]
     assert "Show live stats" in [w.cget("text") for w in widgets(ui)
@@ -497,7 +499,7 @@ def test_connect_says_when_the_client_has_no_live_stats(make_ui, fake_client, mo
     ui.helps.clear()
     assert ui._launch("demo", v, "s3cret!") is True
     pump(ui, fake_client.exists)
-    assert "+sdl-info" in json.loads(fake_client.read_text())["stdin"].splitlines()
+    assert "+sdl-info" in json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
 
 
 NVIDIA = "0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)"

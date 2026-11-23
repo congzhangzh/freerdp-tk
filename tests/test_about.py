@@ -89,15 +89,16 @@ def test_the_manifest_beside_a_client_and_its_kit_release(tmp_path):
     client = tmp_path / "client" / "sdl-freerdp"
     client.parent.mkdir()
     assert about.read_manifest(str(client)) is None  # none there
-    (client.parent / "MANIFEST").write_text(NEW)
-    (client.parent / "KIT_RELEASE").write_text("20261117.2\n")  # bundle_client.py writes it
+    (client.parent / "MANIFEST").write_text(NEW, encoding="utf-8")
+    # bundle_client.py writes it
+    (client.parent / "KIT_RELEASE").write_text("20261117.2\n", encoding="utf-8")
     m = about.read_manifest(str(client))
     assert m.kit_release == "20261117.2" and about.kit_links(m)[0].endswith("/tag/20261117.2")
-    (client.parent / "KIT_RELEASE").write_text("not a release\n")
+    (client.parent / "KIT_RELEASE").write_text("not a release\n", encoding="utf-8")
     assert about.read_manifest(str(client)).kit_release is None
     unpacked = tmp_path / "pack" / "bin" / "sdl-freerdp"  # a kit archive unpacked by hand
     unpacked.parent.mkdir(parents=True)
-    (tmp_path / "pack" / "MANIFEST").write_text(OLD)
+    (tmp_path / "pack" / "MANIFEST").write_text(OLD, encoding="utf-8")
     assert about.read_manifest(str(unpacked)).release == "20261114.3"
     (client.parent / "MANIFEST").write_bytes(b"\xff\xfe nothing a MANIFEST says")
     assert about.read_manifest(str(client)) is None
@@ -106,13 +107,13 @@ def test_the_manifest_beside_a_client_and_its_kit_release(tmp_path):
 def test_the_build_commit(tmp_path, monkeypatch):
     commit = tmp_path / "COMMIT"
     monkeypatch.setattr(about, "COMMIT_FILE", commit)
-    commit.write_text("0213f32" + "0" * 33 + "\n")
+    commit.write_text("0213f32" + "0" * 33 + "\n", encoding="utf-8")
     assert about.build_commit() == "0213f32" + "0" * 33  # a release's
-    commit.write_text("not a commit\n")
+    commit.write_text("not a commit\n", encoding="utf-8")
     here = Path(about.__file__).resolve().parents[2]
     if (here / ".git").exists():  # a source checkout asks git
         head = subprocess.run(["git", "-C", str(here), "rev-parse", "HEAD"], capture_output=True,
-                              text=True).stdout.strip()
+                              text=True, encoding="utf-8", errors="replace").stdout.strip()
         assert about.build_commit() == head
     monkeypatch.setattr(about, "__file__", str(tmp_path / "a" / "b" / "about.py"))
     assert about.build_commit() is None  # neither: nothing, not a guess
@@ -155,13 +156,13 @@ def test_about_with_the_bundled_client(make_ui, home, monkeypatch, tmp_path):
     from freerdp_tk import app
     own = home / "wheel" / "client" / "sdl-freerdp"
     own.parent.mkdir(parents=True)
-    own.write_text("")
+    own.write_text("", encoding="utf-8")
     own.chmod(0o755)
-    (own.parent / "MANIFEST").write_text(NEW)
-    (own.parent / "KIT_RELEASE").write_text("20261117.2\n")
+    (own.parent / "MANIFEST").write_text(NEW, encoding="utf-8")
+    (own.parent / "KIT_RELEASE").write_text("20261117.2\n", encoding="utf-8")
     monkeypatch.setattr(app, "BUNDLED", own)
     commit = tmp_path / "COMMIT"
-    commit.write_text("0213f32" + "1" * 33)
+    commit.write_text("0213f32" + "1" * 33, encoding="utf-8")
     monkeypatch.setattr(about, "COMMIT_FILE", commit)
     ui = make_ui()
     window = open_about(ui)

@@ -114,7 +114,8 @@ def test_a_ui_commit_since_the_tag_is_not_client_only(repo):
 def test_a_notes_line_by_hand_is_not_client_only(repo):
     root, commit, do_bump = repo
     notes = root / "src" / "freerdp_tk" / "RELEASE_NOTES.md"
-    notes.write_text(client_bump.with_bump(notes.read_text(encoding="utf-8"), "20261115.4", "20261114.3")
+    old = notes.read_text(encoding="utf-8")
+    notes.write_text(client_bump.with_bump(old, "20261115.4", "20261114.3")
                      .replace("## Unreleased\n\n", "## Unreleased\n\n- Show live stats.\n"),
                      encoding="utf-8")
     commit("Release note by hand")

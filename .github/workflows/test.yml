@@ -6,6 +6,10 @@
 # The real-keyring tests run on Linux, against a GNOME Keyring in a D-Bus session
 # of its own, on Windows, against the runner's Credential Manager, and on macOS,
 # against the runner's login Keychain.
+# Every job is strict about text encodings: a read, write or subprocess that falls back
+# to the locale's encoding (cp936 on a Chinese Windows) fails the run. The flags stay on
+# the command line, not in PYTHONWARNDEFAULTENCODING, so the Python children a test starts
+# (the fake client, the supervisor) do not print the warning into the output it reads.
 name: test
 
 on:
@@ -37,7 +41,7 @@ jobs:
           mkdir -m 700 -p "$XDG_RUNTIME_DIR"
           xvfb-run -a -s "-screen 0 1400x1000x24" dbus-run-session -- sh -c '
             eval "$(printf ci | gnome-keyring-daemon --unlock --components=secrets)"
-            python3 -m pytest -v -rs'
+            python3 -X warn_default_encoding -W error::EncodingWarning -m pytest -v -rs'
         env:
           PYTHONPATH: src
           XDG_RUNTIME_DIR: /tmp/xdg
@@ -55,4 +59,4 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --group test pytest -v -rs
+      - run: uv run --group test python -X warn_default_encoding -W error::EncodingWarning -m pytest -v -rs

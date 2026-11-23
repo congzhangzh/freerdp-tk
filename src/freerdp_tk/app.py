@@ -335,7 +335,8 @@ def probe_client(client: str) -> tuple[int | None, str]:
     neither old nor broken, so a timeout gives (None, "")."""
     try:
         done = subprocess.run([client, "/version"], capture_output=True, text=True,
-                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+                              encoding="utf-8", errors="replace", timeout=VERSION_TIMEOUT,
+                              **no_console())
     except subprocess.TimeoutExpired:
         return None, ""
     except (OSError, subprocess.SubprocessError) as e:
@@ -375,7 +376,7 @@ def list_monitors(client: str) -> tuple[list[dict], str]:
     """
     try:
         done = subprocess.run([client, "/list:monitor"], capture_output=True, text=True,
-                              errors="replace", timeout=15, **no_console())
+                              encoding="utf-8", errors="replace", timeout=15, **no_console())
     except (OSError, subprocess.SubprocessError) as e:
         return [], str(e)
     return parse_monitors(done.stdout), (done.stdout + done.stderr).strip()
@@ -442,7 +443,7 @@ def spawn(command: str) -> subprocess.Popen:
              if IS_WIN else {"start_new_session": True})
     return subprocess.Popen(command, shell=True, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            errors="replace", **group)
+                            encoding="utf-8", errors="replace", **group)
 
 
 def kill_tree(proc: subprocess.Popen, grace: float = 3.0):
@@ -484,12 +485,13 @@ class Helper:
         if contain and not IS_WIN:
             self.proc = subprocess.Popen([sys.executable, SUPERVISE, command],
                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT, text=True, errors="replace",
-                                         start_new_session=True)
+                                         stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                         errors="replace", start_new_session=True,
+                                         env={**os.environ, "PYTHONUTF8": "1"})
         elif contain:
             self.proc = subprocess.Popen(
                 command, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, errors="replace",
+                stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
                 creationflags=CREATE_SUSPENDED | subprocess.CREATE_NEW_PROCESS_GROUP
                 | subprocess.CREATE_NO_WINDOW)
             self.job = win_job_for(self.proc)  # joins before it runs a single instruction
@@ -799,7 +801,8 @@ def client_says(client: str) -> str | None:
     Starts the client, so never on the Tk thread."""
     try:
         done = subprocess.run([client, "/version"], capture_output=True, text=True,
-                              errors="replace", timeout=VERSION_TIMEOUT, **no_console())
+                              encoding="utf-8", errors="replace", timeout=VERSION_TIMEOUT,
+                              **no_console())
     except (OSError, subprocess.SubprocessError):
         return None
     lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
@@ -1229,7 +1232,8 @@ class Session:
         try:
             self.client = subprocess.Popen(self.argv, stdin=subprocess.PIPE,
                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                           text=True, errors="replace", **no_console())
+                                           text=True, encoding="utf-8", errors="replace",
+                                           **no_console())
         except OSError as e:
             self.say(f"cannot start {self.argv[0]}: {e}")
             return

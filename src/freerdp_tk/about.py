@@ -179,7 +179,8 @@ def build_commit(timeout: float = 5) -> str | None:
         return None
     try:
         sha = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True,
-                             text=True, timeout=timeout).stdout.strip()
+                             text=True, encoding="utf-8", errors="replace",
+                             timeout=timeout).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return None
     return sha if SHA1.match(sha) else None

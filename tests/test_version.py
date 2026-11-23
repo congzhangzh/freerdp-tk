@@ -14,13 +14,14 @@ from freerdp_tk import app
 def fake_client(tmp_path, body: str):
     """A stand-in for a client: a Python script that answers /version with body."""
     script = tmp_path / "client.py"
-    script.write_text(body)
+    script.write_text(body, encoding="utf-8")
     if sys.platform == "win32":
         launcher = tmp_path / "client.cmd"
-        launcher.write_text(f'@"{sys.executable}" "{script}" %*\n')
+        launcher.write_text(f'@"{sys.executable}" "{script}" %*\n', encoding="utf-8")
     else:
         launcher = tmp_path / "client"
-        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n',
+                            encoding="utf-8")
         launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
     return str(launcher)
 

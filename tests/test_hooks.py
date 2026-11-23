@@ -50,7 +50,7 @@ def ended(ui):
 
 def test_tunnel_runs_beside_the_session_and_is_stopped(make_ui, fake_client, home):
     script, pidfile, after = home / "tunnel.py", home / "tunnel.pid", home / "after.txt"
-    script.write_text(TUNNEL)
+    script.write_text(TUNNEL, encoding="utf-8")
     ui = make_ui()
     ui.vars["pre_async"].set(True)
     fill(ui, host="rdp.example.com",
@@ -63,10 +63,10 @@ def test_tunnel_runs_beside_the_session_and_is_stopped(make_ui, fake_client, hom
 
     log = log_text(ui)
     port = log.split("tunnel up on ")[1].split()[0]
-    got = json.loads(fake_client.read_text())
+    got = json.loads(fake_client.read_text(encoding="utf-8"))
     assert f"/proxy:socks5://127.0.0.1:{port}" in got["stdin"].splitlines()
-    assert "before: stopped" in log and not alive(int(pidfile.read_text()))
-    assert after.read_text().strip() == "bye rdp.example.com"
+    assert "before: stopped" in log and not alive(int(pidfile.read_text(encoding="utf-8")))
+    assert after.read_text(encoding="utf-8").strip() == "bye rdp.example.com"
     order = [log.index(s) for s in ("tunnel up", "started:", "exited with code 7",
                                     "before: stopped", "after: exited with code 0")]
     assert order == sorted(order)
@@ -101,8 +101,8 @@ def test_ssh_tunnel_preset(make_ui, fake_client, monkeypatch):
 
 def test_wait_also_follows_a_command_that_runs_to_its_end(make_ui, fake_client, home):
     starter, tunnel, pidfile = home / "starter.py", home / "tunnel.py", home / "tunnel.pid"
-    starter.write_text(STARTER)
-    tunnel.write_text(TUNNEL)
+    starter.write_text(STARTER, encoding="utf-8")
+    tunnel.write_text(TUNNEL, encoding="utf-8")
     ui = make_ui()
     fill(ui, host="rdp.example.com",
          pre=f"{q(sys.executable)} {q(starter)} {q(tunnel)} %L {q(pidfile)}",
@@ -112,12 +112,12 @@ def test_wait_also_follows_a_command_that_runs_to_its_end(make_ui, fake_client, 
 
     log = log_text(ui)
     assert log.index("tunnel up") < log.index("started:")
-    assert fake_client.exists() and not alive(int(pidfile.read_text()))
+    assert fake_client.exists() and not alive(int(pidfile.read_text(encoding="utf-8")))
 
 
 def test_wait_for_output(make_ui, fake_client, home):
     script, pidfile = home / "tunnel.py", home / "tunnel.pid"
-    script.write_text("import time; time.sleep(0.5); " + TUNNEL)
+    script.write_text("import time; time.sleep(0.5); " + TUNNEL, encoding="utf-8")
     ui = make_ui()
     ui.vars["pre_async"].set(True)
     fill(ui, host="rdp.example.com", pre=f"{q(sys.executable)} {q(script)} %L {q(pidfile)}",
@@ -127,7 +127,7 @@ def test_wait_for_output(make_ui, fake_client, home):
 
     log = log_text(ui)
     assert log.index("tunnel up") < log.index("started:")
-    assert fake_client.exists() and not alive(int(pidfile.read_text()))
+    assert fake_client.exists() and not alive(int(pidfile.read_text(encoding="utf-8")))
 
 
 def test_output_that_never_comes_gives_up(make_ui, fake_client):
@@ -167,7 +167,7 @@ def test_timeout_stops_a_command_that_never_ends(make_ui, fake_client, home):
 
     assert "still running after 1 s, not connecting" in log_text(ui)
     assert not fake_client.exists() and after.exists()
-    assert not alive(int(pidfile.read_text()))
+    assert not alive(int(pidfile.read_text(encoding="utf-8")))
 
 
 @pytest.mark.parametrize("fields, message", [

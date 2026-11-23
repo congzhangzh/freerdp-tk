@@ -42,7 +42,7 @@ def processes() -> list[tuple[int, int, int]]:
             if not name.isdigit():
                 continue
             try:
-                with open(f"/proc/{name}/stat") as f:
+                with open(f"/proc/{name}/stat", encoding="utf-8", errors="replace") as f:
                     state, ppid, pgid = f.read().rsplit(")", 1)[1].split()[:3]
             except (OSError, ValueError):
                 continue  # gone meanwhile
@@ -50,7 +50,7 @@ def processes() -> list[tuple[int, int, int]]:
                 found.append((int(name), int(ppid), int(pgid)))
         return found
     out = subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,stat="], capture_output=True,
-                         text=True).stdout
+                         text=True, encoding="utf-8", errors="replace").stdout
     for line in out.splitlines():
         pid, ppid, pgid, stat = line.split()[:4]
         if not stat.startswith("Z"):
@@ -134,7 +134,8 @@ def report(line: str):
     try:
         print(line, flush=True)
     except (BrokenPipeError, ValueError):
-        sys.stdout = open(os.devnull, "w")  # nor fail when Python flushes it at exit
+        # nor fail when Python flushes it at exit
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
 
 
 if __name__ == "__main__":

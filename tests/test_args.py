@@ -80,7 +80,8 @@ def prefs(home):
         path = app.client_prefs_file()
         if content is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content if isinstance(content, str) else json.dumps(content))
+            path.write_text(content if isinstance(content, str) else json.dumps(content),
+                            encoding="utf-8")
         return app.stats_keys()
     return write
 

@@ -114,7 +114,7 @@ jobs:
           mkdir -m 700 -p "$XDG_RUNTIME_DIR"
           xvfb-run -a -s "-screen 0 1400x1000x24" dbus-run-session -- sh -c '
             eval "$(printf ci | gnome-keyring-daemon --unlock --components=secrets)"
-            python3 -m pytest -v -rs'
+            python3 -X warn_default_encoding -W error::EncodingWarning -m pytest -v -rs'
         env:
           PYTHONPATH: src
           XDG_RUNTIME_DIR: /tmp/xdg
@@ -122,8 +122,9 @@ jobs:
       - name: The real-client test with the new client, as the wheels will carry it
         run: |
           python3 scripts/client_bump.py unpack src/freerdp_tk/client
-          xvfb-run -a -s "-screen 0 1400x1000x24" python3 -m pytest -v -rs tests/test_real_client.py \
-            | tee real.log
+          xvfb-run -a -s "-screen 0 1400x1000x24" \
+            python3 -X warn_default_encoding -W error::EncodingWarning -m pytest -v -rs \
+            tests/test_real_client.py | tee real.log
           ! grep -q skipped real.log  # a skip would mean the new client did not run
         env:
           PYTHONPATH: src

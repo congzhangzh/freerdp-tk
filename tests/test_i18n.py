@@ -99,7 +99,7 @@ def test_the_window_in_chinese(make_ui, home, system):
     system("en_US.UTF-8")
     settings = app.config_dir() / "settings.json"  # ~/Library/Application Support on macOS
     settings.parent.mkdir(parents=True)
-    settings.write_text(json.dumps({"language": "zh"}))
+    settings.write_text(json.dumps({"language": "zh"}), encoding="utf-8")
     ui = make_ui()
     assert ui.connect_button.cget("text") == "连接"
     assert [ui.tabs.tab(t, "text") for t in ui.tabs.tabs()] == [
@@ -120,9 +120,10 @@ def test_the_window_in_chinese(make_ui, home, system):
     ui.vars["host"].set("rdp.example.com")
     assert ui.change_note.cget("text") == "4 处更改未保存"  # name, host, wait, client
     assert ui._save()
-    saved = json.loads(ui.store.read_text())["lab"]
+    saved = json.loads(ui.store.read_text(encoding="utf-8"))["lab"]
     assert saved["pre_wait_kind"] == app.WAIT_OUTPUT and saved["gfx"] == "(default)"
-    assert "过了" not in ui.store.read_text() and "默认" not in ui.store.read_text()
+    stored = ui.store.read_text(encoding="utf-8")
+    assert "过了" not in stored and "默认" not in stored
     assert "saved 'lab'" in ui.log.get("1.0", "end")  # the log stays English
 
 
@@ -135,8 +136,8 @@ def test_the_language_button(make_ui, home, monkeypatch):
     assert labels == ["Same as the system", *i18n.LANGUAGES.values()]
     menu.invoke(labels.index(i18n.LANGUAGES["fr"]))
     settings = app.config_dir() / "settings.json"  # ~/Library/Application Support on macOS
-    assert json.loads(settings.read_text()) == {"language": "fr"}
+    assert json.loads(settings.read_text(encoding="utf-8")) == {"language": "fr"}
     assert told == ["freerdp-tk affichera cette langue à son prochain démarrage."]
     assert ui.connect_button.cget("text") == "Connect"  # from the next start
     menu.invoke(labels.index("English"))  # the language it shows now: nothing to say
-    assert json.loads(settings.read_text()) == {"language": "en"} and len(told) == 1
+    assert json.loads(settings.read_text(encoding="utf-8")) == {"language": "en"} and len(told) == 1

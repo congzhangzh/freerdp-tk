@@ -10,6 +10,9 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 - **macOS on Intel is no longer built; 20261122.3 is the last release with it.** On an
   Intel Mac, freerdp-tk comes without a client from now on: install one with `brew install
   freerdp` (auto finds it on your `PATH`), or stay on `uvx freerdp-tk==20261122.3`.
+- Under the hood: everything freerdp-tk reads from the client and its helpers, and the
+  password it hands the client, is UTF-8 now, not the system's code page (cp936 on a
+  Chinese Windows), and the tests fail on any text that is not.
 
 ## 20261122.3
 

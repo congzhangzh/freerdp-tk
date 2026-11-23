@@ -118,13 +118,14 @@ def fake_client(home, monkeypatch):
     bin_dir = home / "bin"
     bin_dir.mkdir()
     script = bin_dir / "fake_client.py"
-    script.write_text(FAKE_CLIENT)
+    script.write_text(FAKE_CLIENT, encoding="utf-8")
     if sys.platform == "win32":  # found through PATHEXT, run by cmd.exe
-        (bin_dir / "sdl-freerdp3.cmd").write_text(f'@"{sys.executable}" "{script}" %*\n')
+        (bin_dir / "sdl-freerdp3.cmd").write_text(f'@"{sys.executable}" "{script}" %*\n',
+                                                  encoding="utf-8")
         rest = os.environ["PATH"]  # keeps System32: cmd.exe, taskkill
     else:
         client = bin_dir / "sdl-freerdp3"
-        client.write_text(f"#!{sys.executable}\n" + FAKE_CLIENT)
+        client.write_text(f"#!{sys.executable}\n" + FAKE_CLIENT, encoding="utf-8")
         client.chmod(client.stat().st_mode | stat.S_IEXEC)
         rest = "/usr/bin:/bin"  # not /usr/local/bin or ~/.local/bin: no real clients
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{rest}")

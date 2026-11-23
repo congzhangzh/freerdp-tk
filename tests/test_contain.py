@@ -57,7 +57,7 @@ KINDS = (["spawner", "plain", "detached", "orphan-child"] if WIN else
 
 def start(tmp_path):
     script = tmp_path / "child.py"
-    script.write_text(CHILD)
+    script.write_text(CHILD, encoding="utf-8")
     q = (lambda p: f'"{p}"') if WIN else (lambda p: f"'{p}'")
     return f"{q(sys.executable)} {q(script)} spawn {q(tmp_path)}"
 
@@ -66,8 +66,8 @@ def pids(tmp_path, timeout=15.0) -> dict[str, int]:
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         files = {k: tmp_path / f"{k}.pid" for k in KINDS}
-        if all(f.exists() and f.read_text() for f in files.values()):
-            return {k: int(f.read_text()) for k, f in files.items()}
+        if all(f.exists() and f.read_text(encoding="utf-8") for f in files.values()):
+            return {k: int(f.read_text(encoding="utf-8")) for k, f in files.items()}
         time.sleep(0.1)
     raise AssertionError(f"children did not start: {sorted(p.name for p in tmp_path.iterdir())}")
 
@@ -117,7 +117,8 @@ time.sleep(120)
 def test_children_end_when_freerdp_tk_dies(tmp_path):
     """The launcher is killed hard (SIGKILL / TerminateProcess): no code of ours runs."""
     launcher = subprocess.Popen([sys.executable, "-c", LAUNCHER, start(tmp_path)],
-                                stdout=subprocess.PIPE, text=True)
+                                stdout=subprocess.PIPE, text=True, encoding="utf-8",
+                                errors="replace")
     found = pids(tmp_path)
     try:
         assert launcher.stdout.readline().strip() == "ready"

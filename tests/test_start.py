@@ -95,20 +95,21 @@ def prefs(tmp_path, monkeypatch):
 
 def test_the_first_start_moves_the_hotkeys_off_right_shift(prefs):
     app.move_client_hotkeys()
-    assert json.loads(prefs.read_text()) == {"SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"]}
+    assert json.loads(prefs.read_text(encoding="utf-8")) == {
+        "SDL_KeyModMask": ["KMOD_RALT", "KMOD_RSHIFT"]}
 
 
 def test_a_settings_file_that_exists_is_left_alone(prefs):
     prefs.parent.mkdir()
-    prefs.write_text('{ "SDL_Fullscreen": true }')
+    prefs.write_text('{ "SDL_Fullscreen": true }', encoding="utf-8")
     app.move_client_hotkeys()
-    assert prefs.read_text() == '{ "SDL_Fullscreen": true }'
+    assert prefs.read_text(encoding="utf-8") == '{ "SDL_Fullscreen": true }'
 
 
 def test_a_folder_that_cannot_be_written_stops_nothing(prefs):
-    prefs.parent.write_text("a file where the folder should be")
+    prefs.parent.write_text("a file where the folder should be", encoding="utf-8")
     app.move_client_hotkeys()
-    assert prefs.parent.read_text() == "a file where the folder should be"
+    assert prefs.parent.read_text(encoding="utf-8") == "a file where the folder should be"
 
 
 def test_the_client_looks_under_dot_config_on_a_mac_too(tmp_path, monkeypatch):
