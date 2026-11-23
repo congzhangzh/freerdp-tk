@@ -13,6 +13,10 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 - Under the hood: everything freerdp-tk reads from the client and its helpers, and the
   password it hands the client, is UTF-8 now, not the system's code page (cp936 on a
   Chinese Windows), and the tests fail on any text that is not.
+- **Linux decodes AV1 on the GPU too**, through VA-API, where the graphics driver has an AV1
+  decoder, and with dav1d otherwise (not yet proven on a real GPU). As on Windows, *GPU* on
+  *Display* lists those cards, by driver and render node (`/dev/dri/renderD128`); on a Mac
+  the list now names VideoToolbox.
 - Under the hood: the bundled client is FreeRDP 20261123.1 (rdp-release-kit 20261123.1).
 
 ## 20261122.3

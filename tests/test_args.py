@@ -163,6 +163,24 @@ def test_video_decoding_passes_codec_first():
     assert [a for a in args if a.startswith("/codec-first")] == ["/codec-first:software"]
 
 
+INTEL_VENDOR = "Intel iHD driver for Intel(R) Gen Graphics - 25.3.4 () (/dev/dri/renderD129)"
+VAAPI = ["0 VA-API Mesa Gallium driver 25.2.3 for AMD Radeon 780M (radeonsi, phoenix) "
+         "(/dev/dri/renderD128) (AV1 4:2:0 decode)",
+         f"1 VA-API {INTEL_VENDOR} (AV1 4:2:0 decode)"]
+
+
+def test_the_linux_decoders_come_from_codec_list_too(fake_client, monkeypatch):
+    """The Linux client lists the render nodes with a VA-API AV1 decoder; an entry picks
+    that one by its id, and none listed (no such GPU, no libva) leaves nothing to pick."""
+    client = app.find_clients()[0]
+    monkeypatch.setenv("FAKE_DECODERS", "\n".join(VAAPI))
+    assert app.list_decoders(client) == VAAPI
+    assert app.codec_first_args({"decoding": app.HARDWARE_FIRST, "gpu": VAAPI[1]}) == \
+        ["/codec-first:hardware:1"]
+    monkeypatch.setenv("FAKE_DECODERS", "no hardware video decoder")
+    assert app.list_decoders(client) == []
+
+
 def test_the_decoders_come_from_codec_list(fake_client, monkeypatch):
     client = app.find_clients()[0]
     assert app.list_decoders(client) == []  # it says: no hardware video decoder
@@ -183,6 +201,17 @@ def test_the_decoders_come_from_codec_list(fake_client, monkeypatch):
     ("AV1 decoder: dav1d (software, no GPU with a D3D11VA AV1 decoder)", (False, "dav1d")),
     ("AV1 decoder: dav1d (software; no device of /codec-first, /codec-list lists them)",
      (False, "dav1d")),
+    # Linux (FreeRDP 20261123.1, av1.c and av1_vaapi.c): the id of /codec-list, then the
+    # driver's vendor string, which may hold parentheses of its own, and the render node
+    ("[INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: VA-API 0 Mesa Gallium driver "
+     "25.2.3 for AMD Radeon 780M (radeonsi, phoenix, LLVM 20.1.8, DRM 3.64) (/dev/dri/renderD128) "
+     "(hardware), dav1d as fallback",
+     (True, "Mesa Gallium driver 25.2.3 for AMD Radeon 780M (radeonsi, phoenix, LLVM 20.1.8, "
+            "DRM 3.64) (/dev/dri/renderD128) (VA-API 0)")),
+    (f"AV1 decoder: VA-API 1 {INTEL_VENDOR} (hardware), dav1d as fallback",
+     (True, f"{INTEL_VENDOR} (VA-API 1)")),
+    ("AV1 decoder: dav1d (software, no GPU with a VA-API AV1 decoder)", (False, "dav1d")),
+    ("VA-API: AV1 decoder 1920x1080 on /dev/dri/renderD128", None),  # not the decoder's line
     ("AV1 decoder: VideoToolbox (hardware), software as fallback", (True, "VideoToolbox")),
     ("AV1 decoder: software (/codec-first:software)", (False, "software")),
     ("[INFO][fake] - connected", None),

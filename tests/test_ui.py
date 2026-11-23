@@ -504,6 +504,11 @@ def test_connect_says_when_the_client_has_no_live_stats(make_ui, fake_client, mo
 
 NVIDIA = "0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)"
 AMD = "1 D3D11VA AMD Radeon(TM) 610M (AV1 4:2:0 decode)"
+# Linux: the render nodes with a VA-API AV1 decoder, the driver's vendor string first
+INTEL_NODE = "Intel iHD driver for Intel(R) Gen Graphics - 25.3.4 () (/dev/dri/renderD129)"
+VAAPI = ["0 VA-API Mesa Gallium driver 25.2.3 for AMD Radeon 780M (radeonsi, phoenix) "
+         "(/dev/dri/renderD128) (AV1 4:2:0 decode)",
+         f"1 VA-API {INTEL_NODE} (AV1 4:2:0 decode)"]
 
 
 def test_video_decoding_and_its_gpu(make_ui, fake_client, monkeypatch):
@@ -539,6 +544,19 @@ def test_video_decoding_and_its_gpu(make_ui, fake_client, monkeypatch):
     assert ui.gpu_note.cget("text") == "The client lists no GPU to pick here; Hardware first still takes any it can use."
 
 
+def test_the_gpu_list_on_linux_comes_from_va_api(make_ui, fake_client, monkeypatch):
+    """The GPU list is the same on Linux: the render nodes /codec-list names, one picked
+    by its id."""
+    monkeypatch.setenv("FAKE_DECODERS", "\n".join(VAAPI))
+    ui = make_ui()
+    ui._fill_gpus()
+    assert list(ui.gpu_box.cget("values")) == ["Automatic", *VAAPI]
+    assert ui.gpu_note.cget("text") == ""
+    ui.gpu_box.set(VAAPI[1])
+    ui.root.update()
+    assert "/codec-first:hardware:1" in ui.preview.get("1.0", "end")
+
+
 @pytest.mark.parametrize("bundled", [True, False])
 def test_connect_says_when_the_client_cannot_choose_its_decoder(make_ui, fake_client,
                                                                 monkeypatch, home, bundled):
@@ -567,11 +585,20 @@ def test_connect_says_when_the_client_cannot_choose_its_decoder(make_ui, fake_cl
     assert not any(a.startswith("/codec-first") for a in stdin.splitlines())
 
 
-def test_the_live_view_shows_the_decoder_that_runs(make_ui, fake_client, monkeypatch):
+@pytest.mark.parametrize("said, kind, note", [
+    ("D3D11VA 1 AMD Radeon(TM) 610M (hardware), dav1d as fallback",
+     "hardware", "hardware decoding on AMD Radeon(TM) 610M (D3D11VA 1)"),
+    (f"VA-API 1 {INTEL_NODE} (hardware), dav1d as fallback",
+     "hardware", f"hardware decoding on {INTEL_NODE} (VA-API 1)"),
+    ("dav1d (software, no GPU with a VA-API AV1 decoder)",  # Linux without one
+     "software", "software decoding (dav1d)"),
+])
+def test_the_live_view_shows_the_decoder_that_runs(make_ui, fake_client, monkeypatch,
+                                                   said, kind, note):
     """The client's own line on its AV1 decoder: its kind beside the session in Running,
     the GPU's name under the list; gone with the session."""
-    monkeypatch.setenv("FAKE_SAY", "[INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: "
-                       "D3D11VA 1 AMD Radeon(TM) 610M (hardware), dav1d as fallback")
+    monkeypatch.setenv("FAKE_SAY",
+                       f"[INFO][com.freerdp.codec.av1] - [av1_init]: AV1 decoder: {said}")
     monkeypatch.setenv("FAKE_STAY", "3")  # then it ends by itself
     ui = make_ui()
     assert ui._launch("lab", {"host": "rdp.example.com"}, "s3cret!") is True
@@ -579,8 +606,7 @@ def test_the_live_view_shows_the_decoder_that_runs(make_ui, fake_client, monkeyp
     pump(ui, lambda: ui.decoder_note.cget("text"))
     from freerdp_tk import app
     dot = app.GLYPHS["dot"]
-    assert ui.running_list.get(0) == f"{session.label} {dot} hardware"
-    assert ui.decoder_note.cget("text") == \
-        f"{session.label}: hardware decoding on AMD Radeon(TM) 610M (D3D11VA 1)"
+    assert ui.running_list.get(0) == f"{session.label} {dot} {kind}"
+    assert ui.decoder_note.cget("text") == f"{session.label}: {note}"
     pump(ui, lambda: not ui.sessions)
     assert ui.decoder_note.cget("text") == ""

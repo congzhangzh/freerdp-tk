@@ -258,8 +258,10 @@ def codec_first_args(v: dict) -> list[str]:
 
 def list_decoders(client: str) -> list[str] | None:
     """The hardware video decoders the client's /codec-list names, a line each, its
-    id first ("0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)");
-    [] when it says there are none; None when it cannot be told (an older client)."""
+    id first ("0 D3D11VA NVIDIA GeForce RTX 5070 Laptop GPU (AV1 4:2:0 decode)" on
+    Windows, "0 VA-API <driver's vendor string> (/dev/dri/renderD128) (AV1 4:2:0 decode)"
+    on Linux, VideoToolbox on a Mac); [] when it says there are none; None when it
+    cannot be told (an older client)."""
     try:
         done = subprocess.run([client, "/codec-list"], capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
@@ -276,7 +278,9 @@ def list_decoders(client: str) -> list[str] | None:
 def decoder_of(line: str) -> tuple[bool, str] | None:
     """The AV1 decoder a client log line says runs, as (hardware, its name):
     "AV1 decoder: D3D11VA 1 AMD Radeon(TM) 610M (hardware), dav1d as fallback" is
-    (True, "AMD Radeon(TM) 610M (D3D11VA 1)"), "AV1 decoder: dav1d (software;
+    (True, "AMD Radeon(TM) 610M (D3D11VA 1)"); VA-API on Linux names the driver's vendor
+    string and the render node, "VA-API 0 <vendor> (/dev/dri/renderD128) (hardware)", as
+    (True, "<vendor> (/dev/dri/renderD128) (VA-API 0)"). "AV1 decoder: dav1d (software;
     /codec-first:software)" is (False, "dav1d"). None for any other line."""
     said = re.search(r"AV1 decoder: (.+)$", line)
     if not said:
