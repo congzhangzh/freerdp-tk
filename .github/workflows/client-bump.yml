@@ -121,6 +121,7 @@ jobs:
           FREERDP_TK_REAL_KEYRING: "1"
       - name: The real-client test with the new client, as the wheels will carry it
         run: |
+          set -o pipefail  # else the tee's exit hides a failing pytest
           python3 scripts/client_bump.py unpack src/freerdp_tk/client
           xvfb-run -a -s "-screen 0 1400x1000x24" \
             python3 -X warn_default_encoding -W error::EncodingWarning -m pytest -v -rs \
