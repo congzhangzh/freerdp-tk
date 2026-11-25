@@ -1,9 +1,9 @@
 # The FreeRDP SDL clients that the wheels carry: rdp-release-kit's portable
 # builds, by file name and SHA-256. Bump it with scripts/bundle_client.py --pin.
 
-# release 20261125.7
-1032be1254c9db8578c17d11bc0d7230be6d2ccd0578358f0de44e1357dac4b9  sdl3-freerdp-20261125.3-linux-aarch64.tar.xz
-668889524d5d13360e6d6e28c90d2b112467c3a98f92c0ed379a56f56debca8f  sdl3-freerdp-20261125.3-linux-x86_64.tar.xz
-4db7fd1bc246a959f29291475a04ecf7862132d349ed73d1f5947db66f784add  sdl3-freerdp-20261125.3-macos-arm64.tar.xz
-0da65622f28a3e102dab9358e5e6f34e7d8296b35756d8dc8d469dacb8cf6bd1  sdl3-freerdp-20261125.3-windows-aarch64.zip
-f224bbc35408da6af437e5a55452261fa80c82b5302eb002c7cfa04bfd21f3f2  sdl3-freerdp-20261125.3-windows-x86_64.zip
+# release 20261125.9
+e321da39317dc4698dfaf5b5d6f762663225bd19e05258a7257a38aa6395f345  sdl3-freerdp-20261125.4-linux-aarch64.tar.xz
+80529f574352c2a0fac1f1f749383eab13dcde2cc8ffeb41d8ab695d3d4c059b  sdl3-freerdp-20261125.4-linux-x86_64.tar.xz
+ca406639de5d155afc4c61668b80124a26b4c0222b8eb40e086d60b394d17cdc  sdl3-freerdp-20261125.4-macos-arm64.tar.xz
+edbc63cb995f1bf41b86f546d854d7bd445a4a58f2a925c5dc0f4750e5383dfb  sdl3-freerdp-20261125.4-windows-aarch64.zip
+1c585433c796d12a737b3916932bf1ca4fd3ded7615d9074da1532033279d52d  sdl3-freerdp-20261125.4-windows-x86_64.zip
