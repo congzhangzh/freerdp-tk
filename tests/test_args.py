@@ -393,3 +393,15 @@ def test_the_monitor_list_gives_scale_and_density(fields, scale, density):
     monitors = app.parse_monitors(f"     * [1] [screen] 1920x1080\t+0+0{fields}")
     assert [(m["id"], m["size"], m["at"], m["scale"], m["density"]) for m in monitors] == \
         [("1", "1920x1080", "+0+0", scale, density)]
+
+
+def test_live_stats_ask_for_the_server_rows_too():
+    """Show live stats: the overlay (+sdl-info) and what the server measured (+astats),
+    which a client without it is not given."""
+    def stats(args):
+        return [x for x in args if x in ("+sdl-info", "+astats")]
+
+    assert stats(build_args({"host": "h", "stats": True}, "")) == ["+sdl-info", "+astats"]
+    assert stats(build_args({"host": "h", "stats": True}, "", server_stats=False)) == \
+        ["+sdl-info"]
+    assert stats(build_args({"host": "h"}, "")) == []

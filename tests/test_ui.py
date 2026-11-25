@@ -860,3 +860,37 @@ def test_the_gpu_list_asks_the_client_in_the_background(make_ui, fake_client, mo
     assert ui.gpu_note.cget("text") == ""
     ui._fill_gpus(background=True)  # known now: no second question
     assert not ui.asking_decoders
+
+
+@pytest.mark.parametrize("old", [False, True])
+def test_live_stats_get_the_server_rows_unless_the_client_is_too_old(make_ui, fake_client,
+                                                                     monkeypatch, old):
+    """The client gets +astats beside +sdl-info; one from before it would stop on it, so
+    it gets the overlay without the server's rows, and the log says so. The command
+    preview shows what is sent."""
+    if old:
+        monkeypatch.setenv("FAKE_NO_ASTATS", "1")
+    monkeypatch.setenv("FAKE_SAY", "[INFO][fake] - session up")
+    monkeypatch.setenv("FAKE_STAY", "3")  # then it ends by itself
+    ui = make_ui()
+    assert ui._launch("demo", {"host": "rdp.example.com", "stats": True}, "s3cret!") is True
+    session = ui.sessions[0]
+    from freerdp_tk import app
+    dot = app.GLYPHS["dot"]
+    # where the overlay's server rows would be, freerdp-tk says why they are not
+    assert ui.running_list.get(0) == (f"{session.label} {dot} no server rows" if old
+                                      else session.label)
+    assert ui.rows_note.cget("text") == (
+        f"{session.label}: live stats without the server's rows; they need FreeRDP "
+        "20261121.5 or newer" if old else "")
+    pump(ui, fake_client.exists)
+    stdin = json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
+    assert "+sdl-info" in stdin and ("+astats" in stdin) is not old
+    said = "has no +astats (FreeRDP 20261121.5 and newer); live stats without the server's rows"
+    assert (said in log_text(ui)) is old
+    pump(ui, lambda: not ui.sessions)
+    assert ui.rows_note.cget("text") == ""  # gone with the session
+    ui.vars["host"].set("rdp.example.com")
+    ui.vars["stats"].set(True)
+    pump(ui, lambda: "+sdl-info" in ui.preview.get("1.0", "end"))
+    assert ("+astats" in ui.preview.get("1.0", "end")) is not old

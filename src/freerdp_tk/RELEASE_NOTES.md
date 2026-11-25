@@ -7,6 +7,10 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 ## Unreleased
 
+- **Live stats show what the server measured too.** With *Show live stats* the overlay gets
+  the server's rows (*Server frames*, *Server times*) from a server that sends them, such as
+  the kit's shadow server. A client older than FreeRDP 20261121.5 still shows the overlay,
+  without those rows, and *Running* says so.
 - **Connect no longer freezes the window.** Before a session starts, freerdp-tk asks the
   client what it is and what it knows, which takes seconds on a busy computer; it now asks on
   the side, and the window keeps working. The *GPU* list asks the client in the background

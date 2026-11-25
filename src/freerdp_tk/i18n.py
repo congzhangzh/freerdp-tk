@@ -103,6 +103,10 @@ TEXTS = {
         # dialogs
         "Full screen on these monitors:": "在这些显示器上全屏：",
         "monitor": "显示器",
+        "no server rows":
+            "无服务器行",
+        "{session}: live stats without the server's rows; they need FreeRDP 20261121.5 or newer":
+            "{session}：实时统计没有服务器的数据行；需要 FreeRDP 20261121.5 或更新版本",
         "Asking the client for its video decoders{dots}":
             "正在询问客户端有哪些视频解码器{dots}",
         "{session}: HiDPI {monitors}":
@@ -353,6 +357,10 @@ TEXTS = {
     "ja": {
         "Full screen on these monitors:": "次のモニターでフルスクリーン:",
         "monitor": "モニター",
+        "no server rows":
+            "サーバー行なし",
+        "{session}: live stats without the server's rows; they need FreeRDP 20261121.5 or newer":
+            "{session}: ライブ統計にサーバーの行がありません。FreeRDP 20261121.5 以降が必要です",
         "Asking the client for its video decoders{dots}":
             "クライアントに動画デコーダーを問い合わせています{dots}",
         "{session}: HiDPI {monitors}":
@@ -597,6 +605,10 @@ TEXTS = {
     "fr": {
         "Full screen on these monitors:": "Plein écran sur ces écrans :",
         "monitor": "écran",
+        "no server rows":
+            "sans lignes du serveur",
+        "{session}: live stats without the server's rows; they need FreeRDP 20261121.5 or newer":
+            "{session} : statistiques en direct sans les lignes du serveur ; il faut FreeRDP 20261121.5 ou plus récent",
         "Asking the client for its video decoders{dots}":
             "Le client est interrogé sur ses décodeurs vidéo{dots}",
         "{session}: HiDPI {monitors}":

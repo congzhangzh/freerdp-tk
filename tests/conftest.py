@@ -36,7 +36,7 @@ if sys.argv[1:] == ["/codec-list"]:
         sys.exit(23)
     print(os.environ.get("FAKE_DECODERS") or "no hardware video decoder")
     sys.exit(0)
-if sys.argv[1:] == ["/help"]:  # FreeRDP 3's help; $FAKE_NO_STATS: an older one, no overlay
+if sys.argv[1:] == ["/help"]:  # FreeRDP 3's; $FAKE_NO_STATS: no overlay, $FAKE_NO_ASTATS: no server rows
     print("    /args-from:<file>|stdin|fd:<number>|env:<name>")
     if not os.environ.get("FAKE_NO_CODEC_FIRST"):
         print("    /codec-first:hardware[:<id>[,<id>...]]|software  Which video decoder goes first")
@@ -44,6 +44,8 @@ if sys.argv[1:] == ["/help"]:  # FreeRDP 3's help; $FAKE_NO_STATS: an older one,
         print("    /sdl-hidpi:points|pixels|scale:<N>[,<id>:points|pixels|scale:<N>...]")
     if not os.environ.get("FAKE_NO_STATS"):
         print("    +sdl-info                         Enable the stats and info overlay")
+        if not os.environ.get("FAKE_NO_ASTATS"):  # a client from before the server's rows
+            print("    +astats                           The server's statistics")
     sys.exit(0)
 if sys.argv[1:] == ["/version"]:
     print(f"This is FreeRDP version {os.environ.get('FAKE_VERSION', '3.99.0')} (fake)")

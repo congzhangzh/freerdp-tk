@@ -241,6 +241,12 @@ def stats_keys() -> str | None:
 
 
 STATS_ARG = "+sdl-info"
+# What a FreeRDP server measured, sent over its statistics channel (FreeRDP::Advanced::Stats,
+# the kit's FreeRDP since 20261121.5): the overlay's rows Server frames and Server times.
+# The flag opens the client's end only; a server without the channel never opens its own,
+# and the overlay has no server rows. A client that does not know the flag stops on it
+# ("Unexpected keyword", exit 23), so it goes only to a client whose help lists it.
+SERVER_STATS_ARG = "+astats"
 
 
 def client_help(client: str) -> str | None:
@@ -883,10 +889,12 @@ def split_extra(text: str) -> list[str]:
     return list(lexer)
 
 
-def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
+def build_args(v: dict, password: str, values: dict | None = None,
+               server_stats: bool = True) -> list[str]:
     """Client arguments for the connection settings v, without the program name.
 
-    values fills the placeholders in the proxy and the extra arguments.
+    values fills the placeholders in the proxy and the extra arguments. server_stats:
+    with live stats, also the server's rows (+astats); False for a client without them.
     """
     v = {**FIELDS, **v}
     args = [f"/v:{v['host'].strip()}"]
@@ -924,6 +932,8 @@ def build_args(v: dict, password: str, values: dict | None = None) -> list[str]:
     args += hidpi_args(v)
     if v["stats"]:  # the SDL3 client's overlay: codec, frames per second, bandwidth, round trip
         args.append(STATS_ARG)
+        if server_stats:  # and what the server measured
+            args.append(SERVER_STATS_ARG)
     args.append("+clipboard" if v["clipboard"] else "-clipboard")
     if v["sound"]:
         args.append("/sound")
@@ -1425,6 +1435,7 @@ class Session:
         self.code: int | None = None  # the client's exit code
         self.decoding = ""  # the kind of video decoder it says it runs, once it says so
         self.hidpi: dict[str, tuple[str, str]] = {}  # display id -> (mode, the rest), as said
+        self.no_server_rows = False  # live stats, but the client has no +astats
         threading.Thread(target=self._run, daemon=True).start()
 
     def say(self, text: str):
@@ -1609,6 +1620,7 @@ class App(ttk.Frame):
         self.asking_decoders: set[str] = set()  # clients asked for /codec-list right now
         self.decoder_session: Session | None = None  # whose decoder the live view shows
         self.hidpi_session: Session | None = None  # whose HiDPI modes it shows
+        self.rows_session: Session | None = None  # whose missing server rows it shows
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1716,6 +1728,10 @@ class App(ttk.Frame):
         # the HiDPI mode of each monitor of the newest session that said so
         self.hidpi_live = ttk.Label(left, text="", wraplength=200, justify="left")
         self.hidpi_live.pack(anchor="w", fill="x")
+        # live stats without the server's rows: the client is too old for them. freerdp-tk
+        # cannot add a row to the client's own overlay, so it says so here, where Running is
+        self.rows_note = ttk.Label(left, text="", wraplength=200, justify="left")
+        self.rows_note.pack(anchor="w", fill="x")
         panes.add(left, weight=0)
         right = ttk.Frame(panes)
         ttk.Label(right, text=tr("Log")).pack(anchor="w")
@@ -2087,7 +2103,8 @@ class App(ttk.Frame):
         v = self._form()
         client = self._resolve_client(v["client"]) or tr("<no client found>")
         try:
-            args = build_args(v, HIDDEN if self.password.get() else "")
+            args = build_args(v, HIDDEN if self.password.get() else "",
+                              server_stats=self._knows(client, SERVER_STATS_ARG))
         except ValueError as e:  # unbalanced quotes in the extra arguments
             return tr("error in extra arguments: {error}", error=e)
         return join_command([client, *args])
@@ -2210,6 +2227,10 @@ class App(ttk.Frame):
                                     "{arrow} Show live stats, or pick a newer client.",
                                     name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
+        if v["stats"] and not self._knows(client, SERVER_STATS_ARG):
+            # the overlay without the server's rows: the client would stop on the argument
+            self._log(f"{name}: {client} has no {SERVER_STATS_ARG} (FreeRDP 20261121.5 and "
+                      "newer); live stats without the server's rows")
         if codec_first_args(v) and not self._knows(client, CODEC_FIRST):
             messagebox.showerror(APP, tr("{name}: {client} cannot choose its video decoder. Set "
                                          "Display {arrow} Video decoding to Hardware first and "
@@ -2266,7 +2287,8 @@ class App(ttk.Frame):
         values = {"h": v["host"].strip(), "p": v["port"].strip() or "3389",
                   "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
-            args = build_args(v, password or "", values)
+            server_stats = self._knows(client, SERVER_STATS_ARG)
+            args = build_args(v, password or "", values, server_stats)
         except ValueError as e:
             messagebox.showerror(APP, tr("{name}: extra arguments: {error}", name=name, error=e))
             return False
@@ -2274,13 +2296,20 @@ class App(ttk.Frame):
             messagebox.showerror(APP, tr("{name}: values must not contain line breaks.", name=name))
             return False
 
-        shown = build_args(v, HIDDEN if password else "", values)
+        shown = build_args(v, HIDDEN if password else "", values, server_stats)
         notes = [f"started: {join_command([client, *shown])}"]
         stdin = "".join(a + "\n" for a in args)
         session = Session(name, v, values, [client, "/args-from:stdin"], stdin, notes,
                           self.output)
         self.sessions.append(session)
         self.running_list.insert("end", session.label)
+        if v["stats"] and not server_stats:  # where the overlay's server rows would be
+            session.no_server_rows = True
+            self._relabel(session)
+            self.rows_session = session
+            self.rows_note.configure(text=tr(
+                "{session}: live stats without the server's rows; they need FreeRDP "
+                "20261121.5 or newer", session=session.label))
         return True
 
     def _ask_password(self, name: str, v: dict, prompt: str) -> str | None:
@@ -2335,6 +2364,9 @@ class App(ttk.Frame):
                     if self.decoder_session is session:
                         self.decoder_session = None
                         self.decoder_note.configure(text="")
+                    if self.rows_session is session:
+                        self.rows_session = None
+                        self.rows_note.configure(text="")
                     if self.hidpi_session is session:
                         self.hidpi_session = None
                         self.hidpi_live.configure(text="")
@@ -2371,7 +2403,7 @@ class App(ttk.Frame):
 
     def _relabel(self, session: Session):
         """A session's line in Running: its name, then what it said of its decoder and of
-        its monitors' HiDPI modes."""
+        its monitors' HiDPI modes, and "no server rows" for live stats without them."""
         monitors = sorted(session.hidpi.items(), key=lambda item: int(item[0]))
         modes = {mode for _, (mode, _) in monitors}
         hidpi = modes.pop() if len(modes) == 1 else ", ".join(f"{i} {m}" for i, (m, _) in monitors)
@@ -2379,7 +2411,8 @@ class App(ttk.Frame):
         picked = index in self.running_list.curselection()
         self.running_list.delete(index)
         self.running_list.insert(index, f" {GLYPHS['dot']} ".join(
-            part for part in (session.label, session.decoding, hidpi) if part))
+            part for part in (session.label, session.decoding, hidpi,
+                              tr("no server rows") if session.no_server_rows else "") if part))
         if picked:
             self.running_list.selection_set(index)
 
