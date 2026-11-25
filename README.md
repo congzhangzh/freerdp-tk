@@ -119,6 +119,8 @@ proxy:       socks5://127.0.0.1:%L
 
 The RDP server then only has to be reachable from the jump host, and the client still connects by its real name, so the certificate check is unchanged. ssh runs without a terminal, so it must log in with a key or an agent, and it must already know the jump host's key (connect once with `ssh` in a terminal).
 
+For the kit's [shadow server](docs/server.md), which listens on 127.0.0.1:3388 on every OS, use the server itself as the jump host, `127.0.0.1` as the *Host* and 3388 as the *Port*: an empty *Port* means RDP's usual 3389.
+
 ## Hotkeys
 
 The SDL client takes a few keys for itself: a modifier plus *Enter* (fullscreen), *R* (resizable), *G* (grab the keyboard), *M* (minimize), *I* (show or hide the stats overlay: codec, frames per second, bandwidth, round trip) and *D* (disconnect). Its own default modifier is Right Shift, so a capital D typed with the right Shift key would end the session.

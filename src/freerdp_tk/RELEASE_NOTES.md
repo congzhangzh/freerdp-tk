@@ -7,6 +7,11 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 ## Unreleased
 
+- **The kit's shadow server listens on 3388 now**, on Windows, Linux and macOS, so that
+  3389 stays free for the system's own RDP servers. To connect to it, set *Port* to 3388 (an
+  empty *Port* still means 3389, for Windows' Remote Desktop, xrdp and GNOME Remote Desktop).
+  The server guide in the project (`docs/server.md`) follows the kit: on Linux the session
+  manager (as root) first, the user unit second.
 - Under the hood: the bundled client is FreeRDP 20261123.11 (rdp-release-kit 20261124.5).
 
 ## 20261124.2
