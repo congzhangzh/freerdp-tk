@@ -5,25 +5,28 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
-## Unreleased
+## 20261125.1
 
 - **Live stats show what the server measured too.** With *Show live stats* the overlay gets
-  the server's rows (*Server frames*, *Server times*) from a server that sends them, such as
-  the kit's shadow server. A client older than FreeRDP 20261121.5 still shows the overlay,
-  without those rows, and *Running* says so.
+  the server's rows (*Server frames*, *Server times*, *Server acks*) from a server that sends
+  them, such as the kit's shadow server. A client older than FreeRDP 20261121.5 still shows
+  the overlay, without those rows, and *Running* says so.
 - **Connect no longer freezes the window.** Before a session starts, freerdp-tk asks the
   client what it is and what it knows, which takes seconds on a busy computer; it now asks on
   the side, and the window keeps working. The *GPU* list asks the client in the background
   too, from when *Display* is shown.
 - **Windows: the window follows its monitor's scale.** Moved to a monitor at another scale,
   or left there when the scale changes in *Settings*, freerdp-tk sizes its text and window
-  for it; before, it kept the size of the monitor it opened on.
+  for it; before, it kept the size of the monitor it opened on. Tested only with Windows'
+  answers simulated, not yet on a real Windows display.
 - **The kit's shadow server listens on 3388 now**, on Windows, Linux and macOS, so that
   3389 stays free for the system's own RDP servers. To connect to it, set *Port* to 3388 (an
   empty *Port* still means 3389, for Windows' Remote Desktop, xrdp and GNOME Remote Desktop).
   The server guide in the project (`docs/server.md`) follows the kit: on Linux the session
   manager (as root) first, the user unit second.
 - Under the hood: the bundled client is FreeRDP 20261123.11 (rdp-release-kit 20261124.5).
+- Under the hood: the repository tells secret scanners (gitleaks) that a checksum in
+  `client.lock` is not a token.
 
 ## 20261124.2
 
