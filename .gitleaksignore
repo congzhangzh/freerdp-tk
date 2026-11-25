@@ -1,0 +1,3 @@
+# A SHA-256 of a public kit file in client.lock that gitleaks' square-access-token rule takes
+# for a token (it starts with "eaaa"); nothing secret.
+426f5b5d6f222ecfed4e66eb80fb7683e99c6d32:client.lock:square-access-token:7
