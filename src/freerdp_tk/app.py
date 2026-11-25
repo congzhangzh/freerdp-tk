@@ -509,10 +509,9 @@ def set_dpi_awareness() -> bool:
         return False
 
 
-def match_tk_scaling(root: tk.Tk) -> float | None:
-    """Windows: Tk's points to pixels from the DPI of the monitor the window opens on (1.0
-    is 72 DPI; 2.08 is 150 %), so text and widgets have their size there. The factor set,
-    None when nothing was set (off Windows, an older Windows)."""
+def window_dpi(root: tk.Tk) -> int | None:
+    """Windows: the DPI of the monitor the window is on, 96 at 100 %; None off Windows, on
+    an older Windows, or when it cannot be told."""
     if not IS_WIN:
         return None
     try:
@@ -520,13 +519,68 @@ def match_tk_scaling(root: tk.Tk) -> float | None:
         user32 = ctypes.windll.user32
         user32.GetDpiForWindow.restype = ctypes.c_uint
         user32.GetDpiForWindow.argtypes = [ctypes.c_void_p]
-        dpi = user32.GetDpiForWindow(root.winfo_id())
+        return user32.GetDpiForWindow(root.winfo_id()) or None
     except (AttributeError, OSError):
         return None
+
+
+def match_tk_scaling(root: tk.Tk) -> float | None:
+    """Windows: Tk's points to pixels from the DPI of the monitor the window opens on (1.0
+    is 72 DPI; 2.08 is 150 %), so text and widgets have their size there. The factor set,
+    None when nothing was set (off Windows, an older Windows)."""
+    dpi = window_dpi(root)
     if not dpi:
         return None
     root.tk.call("tk", "scaling", dpi / 72)
     return dpi / 72
+
+
+def rescale_tk(root: tk.Tk, old: int, new: int) -> bool:
+    """What Windows asks of a window whose monitor's DPI went from old to new
+    (WM_DPICHANGED, which Tk 8.6 does not handle): Tk's scaling; the fonts, those sized in
+    pixels by the ratio, those in points again so Tk works them out anew; the window and its
+    smallest size by the ratio (not when maximized: Windows sizes that one). False when Tk
+    already went by the new DPI itself, so nothing is scaled twice."""
+    if abs(float(root.tk.call("tk", "scaling")) * 72 - new) < 0.5:
+        return False
+    root.tk.call("tk", "scaling", new / 72)
+    ratio = new / old
+    for name in font.names(root):
+        f = font.nametofont(name, root)
+        size = int(f.cget("size"))
+        f.configure(size=round(size * ratio) if size < 0 else size)
+    if root.wm_state() != "zoomed":
+        width, height = root.winfo_width(), root.winfo_height()
+        if width > 1 and height > 1:
+            root.geometry(f"{round(width * ratio)}x{round(height * ratio)}")
+    small = root.wm_minsize()
+    if small and all(small):
+        root.wm_minsize(round(small[0] * ratio), round(small[1] * ratio))
+    return True
+
+
+DPI_POLL_MS = 500  # how often the window looks at its monitor's DPI (one cheap call)
+
+
+def follow_dpi(root: tk.Tk) -> bool:
+    """Windows: keep Tk at the DPI of the monitor the window is on, when it is moved to a
+    monitor of another scale or the scale is changed in Settings. Windows tells a per-monitor
+    aware window so with WM_DPICHANGED, which Tk 8.6 ignores, so the window asks for its DPI
+    every DPI_POLL_MS instead. True when it follows; nothing off Windows."""
+    last = window_dpi(root)
+    if not last:
+        return False
+
+    def look():
+        nonlocal last
+        now = window_dpi(root)
+        if now and now != last:
+            rescale_tk(root, last, now)
+            last = now
+        root.after(DPI_POLL_MS, look)
+
+    root.after(DPI_POLL_MS, look)
+    return True
 
 
 def list_monitors(client: str) -> tuple[list[dict], str]:
@@ -2518,6 +2572,7 @@ def main():
     match_tk_scaling(root)
     root.title(f"{APP} {__version__}")  # not "FreeRDP": the session window's ("FreeRDP: host")
     root.minsize(760, 640)
+    follow_dpi(root)  # Windows: a monitor of another scale, or the scale changed
     style = ttk.Style(root)
     if not (IS_WIN or IS_MAC) and "clam" in style.theme_names():
         style.theme_use("clam")  # the default X11 theme looks dated

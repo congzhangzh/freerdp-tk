@@ -759,3 +759,49 @@ def test_the_live_view_shows_each_monitors_hidpi(make_ui, fake_client, monkeypat
     assert ui.hidpi_live.cget("text") == f"{session.label}: HiDPI {note}"
     pump(ui, lambda: not ui.sessions)
     assert ui.hidpi_live.cget("text") == ""
+
+
+def test_a_new_monitor_dpi_rescales_the_window(make_ui):
+    """What WM_DPICHANGED asks, done by hand (Tk 8.6 ignores it): from 96 to 144 DPI (100 %
+    to 150 %), Tk's scaling, the fonts in pixels by the ratio, the fonts in points worked out
+    anew at the new scaling, the window and its smallest size by the ratio."""
+    from tkinter import font
+
+    from freerdp_tk import app
+    ui = make_ui()
+    root = ui.root
+    root.tk.call("tk", "scaling", 96 / 72)
+    pixels = font.Font(root, name="dpi_test_pixels", family="TkDefaultFont", size=-12)
+    points = font.Font(root, name="dpi_test_points", family="TkDefaultFont", size=10)
+    points.configure(size=10)  # measured at 96 DPI
+    tall = points.metrics("linespace")
+    root.wm_minsize(400, 300)
+    root.geometry("800x600")
+    root.update()
+    assert (root.winfo_width(), root.winfo_height()) == (800, 600)
+    assert app.rescale_tk(root, 96, 144) is True
+    root.update()
+    assert float(root.tk.call("tk", "scaling")) == pytest.approx(2.0, abs=0.01)  # Tk keeps px/mm
+    assert int(pixels.cget("size")) == -18 and int(points.cget("size")) == 10
+    assert points.metrics("linespace") > tall  # 10 points are more pixels at 144 DPI
+    assert (root.winfo_width(), root.winfo_height()) == (1200, 900)
+    assert root.wm_minsize() == (600, 450)
+    assert app.rescale_tk(root, 96, 144) is False  # Tk is there already: not twice
+    assert int(pixels.cget("size")) == -18
+
+
+def test_the_window_follows_its_monitor_dpi(make_ui, monkeypatch):
+    """Windows: the window asks for its DPI every DPI_POLL_MS and rescales on a change;
+    nothing off Windows."""
+    from freerdp_tk import app
+    ui = make_ui()
+    asked, changes = [], []
+    dpis = iter([96, 96, 144, 144])
+    monkeypatch.setattr(app, "window_dpi", lambda root: asked.append(1) or next(dpis, 144))
+    monkeypatch.setattr(app, "rescale_tk", lambda root, old, new: changes.append((old, new)))
+    monkeypatch.setattr(app, "DPI_POLL_MS", 20)
+    assert app.follow_dpi(ui.root) is True
+    pump(ui, lambda: len(asked) >= 5)
+    assert changes == [(96, 144)]  # once, when the window got to the 150 % monitor
+    monkeypatch.setattr(app, "window_dpi", lambda root: None)  # off Windows
+    assert app.follow_dpi(ui.root) is False
