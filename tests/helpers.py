@@ -31,6 +31,12 @@ def pump(ui, until, timeout=15.0):
     raise AssertionError(f"timed out; log so far:\n{log_text(ui)}")
 
 
+def answered(ui):
+    """Wait until what Connect asks the client programs on another thread (versions, help,
+    monitors) is answered and acted on: a no-op when nothing is being asked."""
+    pump(ui, lambda: not ui.asking)
+
+
 def settle(ui):
     """Wait until the keyring calls queued so far are done and handed back."""
     pump(ui, lambda: ui.keyring.pending == 0)
@@ -79,6 +85,7 @@ def click(ui, widget):
     widget.event_generate("<ButtonPress-1>", x=x, y=y)
     widget.event_generate("<ButtonRelease-1>", x=x, y=y)
     ui.root.update()
+    answered(ui)  # Connect asks the client programs on another thread
 
 
 def screen_center(widget) -> tuple[int, int]:
@@ -100,6 +107,7 @@ def xdo_click(ui, widget):
                              f"{ui.root.winfo_screenwidth()}x{ui.root.winfo_screenheight()})")
     subprocess.run(["xdotool", "mousemove", "--sync", str(x), str(y), "click", "1"], check=True)
     ui.root.update()
+    answered(ui)  # Connect asks the client programs on another thread
 
 
 def xdo_type(ui, widget, text):

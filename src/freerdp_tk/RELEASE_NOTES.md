@@ -7,6 +7,10 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 ## Unreleased
 
+- **Connect no longer freezes the window.** Before a session starts, freerdp-tk asks the
+  client what it is and what it knows, which takes seconds on a busy computer; it now asks on
+  the side, and the window keeps working. The *GPU* list asks the client in the background
+  too, from when *Display* is shown.
 - **Windows: the window follows its monitor's scale.** Moved to a monitor at another scale,
   or left there when the scale changes in *Settings*, freerdp-tk sizes its text and window
   for it; before, it kept the size of the monitor it opened on.

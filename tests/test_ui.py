@@ -805,3 +805,58 @@ def test_the_window_follows_its_monitor_dpi(make_ui, monkeypatch):
     assert changes == [(96, 144)]  # once, when the window got to the 150 % monitor
     monkeypatch.setattr(app, "window_dpi", lambda root: None)  # off Windows
     assert app.follow_dpi(ui.root) is False
+
+
+def responsive_while(ui, busy, seconds=1.0) -> float:
+    """The longest the Tk event loop went without running a 10 ms timer while busy()
+    held, over about seconds: small when nothing blocks the window."""
+    import time
+    ticks = []
+
+    def tick():
+        ticks.append(time.monotonic())
+        if busy():
+            ui.root.after(10, tick)
+
+    ui.root.after(10, tick)
+    end = time.monotonic() + seconds
+    while time.monotonic() < end and busy():
+        ui.root.update()
+        time.sleep(0.005)
+    return max((b - a for a, b in zip(ticks, ticks[1:])), default=0.0)
+
+
+def test_connect_does_not_freeze_the_window(make_ui, fake_client, monkeypatch):
+    """A client that takes 2 s to answer /version and /help: Connect asks it on another
+    thread, the window keeps running, a second Connect meanwhile starts nothing more,
+    and the session starts once it has answered."""
+    monkeypatch.setenv("FAKE_SLOW", "2")
+    ui = make_ui()
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    type_into(ui, entry_for(ui, ui.password), "s3cret!")
+    import time
+    start = time.monotonic()
+    ui._connect()
+    assert time.monotonic() - start < 0.5  # it used to wait the 2 s for each question
+    assert ui.asking  # asked in the background
+    ui._connect()  # clicked again while it asks
+    assert responsive_while(ui, lambda: bool(ui.asking)) < 0.5
+    pump(ui, fake_client.exists, timeout=20)
+    pump(ui, lambda: not ui.asking)
+    assert len(ui.sessions) <= 1 and ui.running_list.size() <= 1
+
+
+def test_the_gpu_list_asks_the_client_in_the_background(make_ui, fake_client, monkeypatch):
+    """Opening the GPU list does not wait for /codec-list: the note says it is asking,
+    the window keeps running, and the list fills when the client answers."""
+    monkeypatch.setenv("FAKE_SLOW", "2")
+    monkeypatch.setenv("FAKE_DECODERS", f"{NVIDIA}\n{AMD}")
+    ui = make_ui()
+    ui._fill_gpus(background=True)  # what opening the list does
+    assert ui.gpu_note.cget("text") == "Asking the client for its video decoders..." or \
+        ui.gpu_note.cget("text") == "Asking the client for its video decoders\u2026"
+    assert responsive_while(ui, lambda: bool(ui.asking_decoders)) < 0.5
+    pump(ui, lambda: list(ui.gpu_box.cget("values")) == ["Automatic", NVIDIA, AMD], timeout=20)
+    assert ui.gpu_note.cget("text") == ""
+    ui._fill_gpus(background=True)  # known now: no second question
+    assert not ui.asking_decoders

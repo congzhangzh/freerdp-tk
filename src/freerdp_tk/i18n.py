@@ -103,6 +103,8 @@ TEXTS = {
         # dialogs
         "Full screen on these monitors:": "在这些显示器上全屏：",
         "monitor": "显示器",
+        "Asking the client for its video decoders{dots}":
+            "正在询问客户端有哪些视频解码器{dots}",
         "{session}: HiDPI {monitors}":
             "{session}：HiDPI {monitors}",
         "Follow the OS (per monitor)":
@@ -351,6 +353,8 @@ TEXTS = {
     "ja": {
         "Full screen on these monitors:": "次のモニターでフルスクリーン:",
         "monitor": "モニター",
+        "Asking the client for its video decoders{dots}":
+            "クライアントに動画デコーダーを問い合わせています{dots}",
         "{session}: HiDPI {monitors}":
             "{session}: HiDPI {monitors}",
         "Follow the OS (per monitor)":
@@ -593,6 +597,8 @@ TEXTS = {
     "fr": {
         "Full screen on these monitors:": "Plein écran sur ces écrans :",
         "monitor": "écran",
+        "Asking the client for its video decoders{dots}":
+            "Le client est interrogé sur ses décodeurs vidéo{dots}",
         "{session}: HiDPI {monitors}":
             "{session} : HiDPI {monitors}",
         "Follow the OS (per monitor)":

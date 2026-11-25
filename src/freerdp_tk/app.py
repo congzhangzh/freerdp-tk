@@ -419,6 +419,64 @@ def probe_client(client: str) -> tuple[int | None, str]:
     return None, done.stderr.strip() if done.returncode else ""
 
 
+def ask_versions(clients: list[str], versions: dict[str, int]) -> tuple[dict, dict, dict]:
+    """Auto's walk: the clients in order until one is FreeRDP 3, each asked its version
+    unless known. Returns the versions with what it learnt, the clients it could not tell
+    (with what each said if it did not start) and those that did not start. Runs the
+    clients, so the window calls it on another thread."""
+    versions, unknown, cannot_start = dict(versions), {}, {}
+    for client in clients:
+        if client in versions:
+            major = versions[client]
+        else:
+            major, error = probe_client(client)
+            if major is None:
+                unknown[client] = error
+                if error:
+                    cannot_start[client] = error
+                    continue
+                break
+            versions[client] = major
+        if major >= 3:
+            break
+    return versions, unknown, cannot_start
+
+
+def resolve_client(choice: str, clients: list[str], versions: dict[str, int],
+                   cannot_start: dict[str, str]) -> str:
+    """The program to run for a client choice; "" when there is none."""
+    choice = choice.strip()
+    if choice in ("", AUTO):
+        usable = [c for c in clients if versions.get(c, 3) >= 3 and c not in cannot_start]
+        return next(iter(usable or clients), "")
+    return choice if shutil.which(choice) or Path(choice).is_file() else ""
+
+
+def gather(choice: str, clients: list[str], versions: dict[str, int], helps: dict[str, str],
+           cannot_start: dict[str, str], screen: tuple[int, int]) -> dict:
+    """All Connect asks the client programs, each of which can take seconds to start (more
+    on a busy computer), so the window asks it on another thread and stays responsive:
+    the versions (Auto's walk, or the chosen client's), the client to run, its /help (None
+    when it could not be read) and whether the desktop has no monitor (a 0x0 screen that
+    /list:monitor confirms). The window's caches go in as copies; it merges the answers."""
+    unknown = {}
+    if choice.strip() in ("", AUTO):
+        versions, unknown, cannot_start = ask_versions(clients, versions)
+    client = resolve_client(choice, clients, versions, cannot_start)
+    if client and client not in versions and client not in unknown:
+        major, error = probe_client(client)
+        if major is None:
+            unknown[client] = error
+        else:
+            versions = {**versions, client: major}
+    text = helps.get(client) if client else None
+    if client and text is None:
+        text = client_help(client)
+    return {"versions": versions, "unknown": unknown, "cannot_start": cannot_start,
+            "auto": choice.strip() in ("", AUTO), "client": client, "help": text,
+            "no_monitor": bool(client) and no_monitor(screen, client)}
+
+
 def client_major_version(client: str) -> int | None:
     """Major FreeRDP version of a client, None when it cannot be told (it did not
     start, did not answer in time, or said no version). Unknown is not old."""
@@ -1547,6 +1605,8 @@ class App(ttk.Frame):
         self.cannot_start: dict[str, str] = {}  # auto passes over these; asked at each Connect
         self.helps: dict[str, str] = {}  # client -> its /help, once it could be read
         self.decoders: dict[str, list[str]] = {}  # client -> its /codec-list, once known
+        self.asking: set[str] = set()  # connections whose client programs are being asked
+        self.asking_decoders: set[str] = set()  # clients asked for /codec-list right now
         self.decoder_session: Session | None = None  # whose decoder the live view shows
         self.hidpi_session: Session | None = None  # whose HiDPI modes it shows
         self.clients = find_clients()
@@ -1617,6 +1677,9 @@ class App(ttk.Frame):
             frame = tab(self.tabs)
             self.tabs.add(frame, text=title)
             self.tab_titles[frame] = title
+        # the GPU list asks the client ahead, in the background, once Display shows
+        self.tabs.bind("<<NotebookTabChanged>>", lambda _: self.tabs.select() == str(
+            self.gpu_box.master) and self._fill_gpus(background=True), add="+")
         row = ttk.Frame(form)
         row.pack(fill="x", pady=(4, 0))
         self.reset_button = ttk.Button(row, text=tr("Reset"), width=-6, command=self._reset)
@@ -1828,7 +1891,7 @@ class App(ttk.Frame):
                                                              state="readonly"),
                   "decoding")
         self.gpu_box = self._choices(f, "gpu", [ANY_GPU], state="readonly",
-                                     postcommand=self._fill_gpus)
+                                     postcommand=lambda: self._fill_gpus(background=True))
         self._row(f, 11, tr("GPU"), self.gpu_box, "gpu")
         self.gpu_note = ttk.Label(f, text="", foreground="gray")
         self.gpu_note.grid(row=12, column=1, sticky="w")
@@ -1860,10 +1923,33 @@ class App(ttk.Frame):
         software = self.vars["decoding"].get() == SOFTWARE_FIRST
         self.gpu_box.configure(state="disabled" if software else "readonly")
 
-    def _fill_gpus(self):
-        """Fill the GPU list from the client's /codec-list as it opens, and say when
-        there is nothing to pick."""
+    def _fill_gpus(self, background: bool = False):
+        """Fill the GPU list from the client's /codec-list, and say when there is nothing
+        to pick. In the background (the window's own calls: Display shown, the list
+        opened) the client is asked on another thread, and the list fills when it answers;
+        until then the note says so."""
         client = self._resolve_client(self.vars["client"].get())
+        if client and client not in self.decoders and background:
+            if client not in self.asking_decoders:
+                self.asking_decoders.add(client)
+                result = []
+                threading.Thread(target=lambda: result.append(list_decoders(client)),
+                                 daemon=True).start()
+
+                def wait():
+                    if not result:
+                        self.after(50, wait)
+                        return
+                    self.asking_decoders.discard(client)
+                    if result[0] is not None:
+                        self.decoders[client] = result[0]
+                    if self._resolve_client(self.vars["client"].get()) == client:
+                        self._show_gpus(result[0])
+
+                wait()
+            self.gpu_note.configure(text=tr("Asking the client for its video decoders{dots}",
+                                            dots=GLYPHS["dots"]))
+            return
         if not client:
             found = None
         elif client in self.decoders:
@@ -1872,6 +1958,10 @@ class App(ttk.Frame):
             found = list_decoders(client)
             if found is not None:
                 self.decoders[client] = found
+        self._show_gpus(found)
+
+    def _show_gpus(self, found: list[str] | None):
+        """The GPU list and its note for what /codec-list said (None: it could not)."""
         gpus, chosen = list(found or []), self.vars["gpu"].get()
         if chosen != ANY_GPU and chosen not in gpus:  # saved on another computer, say
             gpus.append(chosen)
@@ -1957,23 +2047,14 @@ class App(ttk.Frame):
 
     def _resolve_client(self, choice: str) -> str:
         """The program to run for a client choice; "" when there is none."""
-        choice = choice.strip()
-        if choice in ("", AUTO):
-            usable = [c for c in self.clients
-                      if self.versions.get(c, 3) >= 3 and c not in self.cannot_start]
-            return next(iter(usable or self.clients), "")
-        return choice if shutil.which(choice) or Path(choice).is_file() else ""
+        return resolve_client(choice, self.clients, self.versions, self.cannot_start)
 
     def _knows(self, client: str, arg: str) -> bool:
         """False only when the client's own help does not list arg: an older client
         stops on an unknown argument ("Unexpected keyword", exit 23) a second after
-        Connect. Unknown is tried; a help that could be read is kept."""
-        if client not in self.helps:
-            text = client_help(client)
-            if text is None:
-                return True
-            self.helps[client] = text
-        return arg in self.helps[client]
+        Connect. Unknown is tried; a help that could be read is kept (gather() asks)."""
+        text = self.helps.get(client)
+        return True if text is None else arg in text
 
     def _ask_versions(self) -> dict[str, str]:
         """Auto takes the first client that is FreeRDP 3 and starts: a FreeRDP 2
@@ -1984,23 +2065,23 @@ class App(ttk.Frame):
         could not tell, with what each said if it did not start, so Connect asks
         none a second time; auto takes the first that started, since unknown is
         not old. Those that did not start are asked again at the next Connect."""
-        self.cannot_start.clear()
-        unknown = {}
-        for client in self.clients:
-            if client in self.versions:
-                major = self.versions[client]
-            else:
-                major, error = probe_client(client)
-                if major is None:
-                    unknown[client] = error
-                    if error:
-                        self.cannot_start[client] = error
-                        continue
-                    break
-                self.versions[client] = major
-            if major >= 3:
-                break
+        self.versions, unknown, self.cannot_start = ask_versions(self.clients, self.versions)
         return unknown
+
+    def _gather_args(self, v: dict) -> tuple:
+        """gather()'s arguments for the connection v: copies of the window's caches as they
+        are now, read on the Tk thread."""
+        return (v["client"], list(self.clients), dict(self.versions), dict(self.helps),
+                dict(self.cannot_start), (self.winfo_screenwidth(), self.winfo_screenheight()))
+
+    def _take(self, asked: dict):
+        """Keep what gather() learnt: the versions it could tell, the clients Auto passed
+        over this time, a /help that could be read."""
+        self.versions.update(asked["versions"])
+        if asked["auto"]:
+            self.cannot_start = dict(asked["cannot_start"])
+        if asked["client"] and asked["help"] is not None:
+            self.helps[asked["client"]] = asked["help"]
 
     def _command_text(self) -> str:
         v = self._form()
@@ -2026,49 +2107,91 @@ class App(ttk.Frame):
 
     def _connect(self):
         names = self._selected_names()
-        if len(names) > 1:  # several saved connections: start each one as saved
-            for name in names:
-                if not self._launch(name, self.saved[name], self.passwords.get(name)):
-                    break
+        if len(names) > 1:  # several saved connections: start each one as saved, in turn
+            def one(i: int):
+                if i < len(names):
+                    self._launch_soon(names[i], self.saved[names[i]],
+                                      self.passwords.get(names[i]),
+                                      lambda started: started and one(i + 1))
+            one(0)
             return
         name = self.name.get().strip() or self.vars["host"].get().strip()
         typed, v = self.password.get(), self._form()
-        if self._launch(name, v, typed or self.passwords.get(name)) and typed:
-            if typed != self.passwords.get(name) and v["remember_password"]:
-                self._store_password(v, typed)  # a new one, typed into the form
-            self.passwords[name] = typed
-            if name == self.current:  # kept now, as a Save would have kept it
-                self.original["password"] = typed
-                self._refresh_changes()
 
-    def _launch(self, name: str, v: dict, password: str | None) -> bool:
+        def started(ok: bool):
+            if ok and typed:
+                if typed != self.passwords.get(name) and v["remember_password"]:
+                    self._store_password(v, typed)  # a new one, typed into the form
+                self.passwords[name] = typed
+                if name == self.current:  # kept now, as a Save would have kept it
+                    self.original["password"] = typed
+                    self._refresh_changes()
+
+        self._launch_soon(name, v, typed or self.passwords.get(name), started)
+
+    def _launch_soon(self, name: str, v: dict, password: str | None, then=None):
+        """Connect from the window: gather() on another thread, so the window never
+        freezes while the client programs start, then _launch with its answers and
+        then(started). Connect clicked again meanwhile for the same name does nothing."""
+        if name in self.asking:
+            return
+        self.asking.add(name)
+        v = {**FIELDS, **v}
+        result = []
+        caches = self._gather_args(v)
+
+        def ask():
+            try:
+                result.append(gather(*caches))
+            except Exception as e:  # noqa: BLE001 - said in the log, never a dead thread
+                result.append(e)
+
+        threading.Thread(target=ask, daemon=True).start()
+
+        def wait():
+            if not result:
+                self.after(50, wait)
+                return
+            self.asking.discard(name)
+            if isinstance(result[0], Exception):
+                self._log(f"{name}: could not ask the client: {result[0]}")
+                started = False
+            else:
+                started = self._launch(name, v, password, result[0])
+            if then:
+                then(started)
+
+        wait()
+
+    def _launch(self, name: str, v: dict, password: str | None,
+                asked: dict | None = None) -> bool:
         """Start one client; False when it did not start and the user was told why.
 
-        Without a password: the one saved in the system keyring, else ask. The
-        keyring is read in the background, so then True means the client is on
-        its way, not that it started.
+        asked: gather()'s answers; without them it asks here, on this thread (the
+        window's Connect asks on another, _launch_soon). Without a password: the one
+        saved in the system keyring, else ask. The keyring is read in the background,
+        so then True means the client is on its way, not that it started.
         """
         v = {**FIELDS, **v}
-        unknown = self._ask_versions() if v["client"].strip() in ("", AUTO) else {}
-        client = self._resolve_client(v["client"])
+        if asked is None:
+            asked = gather(*self._gather_args(v))
+        self._take(asked)
+        unknown, client = asked["unknown"], asked["client"]
         if not client:
             messagebox.showerror(APP, tr("{name}: no FreeRDP SDL client found. Install FreeRDP 3 "
                                          "with its SDL client, or choose one under Connection "
                                          "{arrow} Client.", name=name, arrow=GLYPHS["arrow"]))
             return False
         if client not in self.versions:
-            major, error = (None, unknown[client]) if client in unknown else probe_client(client)
-            if major is None:
-                if error:  # it cannot start at all, such as a library it lacks
-                    messagebox.showerror(APP, tr("{name}: {client} did not start:\n{error}",
-                                                 name=name, client=client, error=error))
-                    return False
-                # tried anyway: a FreeRDP 2 client then fails on /args-from:stdin, in its
-                # own words in the log, and the next Connect asks again
-                self._log(f"{name}: could not tell {client}'s version; trying it "
-                          "(freerdp-tk needs FreeRDP 3)")
-            else:
-                self.versions[client] = major
+            error = unknown.get(client, "")
+            if error:  # it cannot start at all, such as a library it lacks
+                messagebox.showerror(APP, tr("{name}: {client} did not start:\n{error}",
+                                             name=name, client=client, error=error))
+                return False
+            # tried anyway: a FreeRDP 2 client then fails on /args-from:stdin, in its
+            # own words in the log, and the next Connect asks again
+            self._log(f"{name}: could not tell {client}'s version; trying it "
+                      "(freerdp-tk needs FreeRDP 3)")
         if self.versions.get(client, 3) < 3:
             messagebox.showerror(APP, tr("{name}: {client} is not a FreeRDP 3 client. freerdp-tk "
                                          "passes the password on standard input "
@@ -2107,7 +2230,7 @@ class App(ttk.Frame):
             self._log(f"{name}: {client} has no {SDL_HIDPI} (FreeRDP 20261123.4 and newer); "
                       "connecting without the HiDPI settings")
             v = {**v, "hidpi": FOLLOW_OS, "hidpi_monitors": ""}
-        if no_monitor((self.winfo_screenwidth(), self.winfo_screenheight()), client):
+        if asked["no_monitor"]:
             messagebox.showerror(APP, tr("{name}: this desktop has no monitor right now (its "
                                          "screen is 0x0), so the client has nowhere to show "
                                          "the remote desktop. Connect again once a monitor "

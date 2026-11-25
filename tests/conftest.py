@@ -19,9 +19,12 @@ from keyring.errors import PasswordDeleteError
 # $FAKE_255=said, it says a line first. /codec-list prints $FAKE_DECODERS (none by
 # default); $FAKE_NO_CODEC_FIRST: a client from before /codec-first, $FAKE_NO_HIDPI one
 # from before /sdl-hidpi. $FAKE_SAY is a
-# line it says once connected, and $FAKE_STAY the seconds it then stays.
+# line it says once connected, and $FAKE_STAY the seconds it then stays. $FAKE_SLOW: the
+# seconds it takes to answer /version, /help, /codec-list and /list:monitor.
 FAKE_CLIENT = """
-import json, os, sys
+import json, os, sys, time
+if sys.argv[1:] in (["/version"], ["/help"], ["/codec-list"], ["/list:monitor"]):
+    time.sleep(float(os.environ.get("FAKE_SLOW", "0")))  # a busy computer, a slow start
 if sys.argv[1:] == ["/list:monitor"]:  # two monitors, unless $FAKE_MONITORS says otherwise
     print(os.environ.get("FAKE_MONITORS", "listing 2 monitors:\\n"
           "     * [1] [Built-in Retina Display] 1512x982\\t+0+0\\n"
