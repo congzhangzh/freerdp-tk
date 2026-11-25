@@ -764,28 +764,38 @@ def test_the_live_view_shows_each_monitors_hidpi(make_ui, fake_client, monkeypat
 def test_a_new_monitor_dpi_rescales_the_window(make_ui):
     """What WM_DPICHANGED asks, done by hand (Tk 8.6 ignores it): from 96 to 144 DPI (100 %
     to 150 %), Tk's scaling, the fonts in pixels by the ratio, the fonts in points worked out
-    anew at the new scaling, the window and its smallest size by the ratio."""
+    anew at the new scaling, the window and its smallest size by the ratio.
+
+    Sizes stay small enough for a 1024x768 CI screen: Tk keeps a window within the screen
+    (its default maxsize), so 1200x900 came out 1028x749 on windows-latest. The fonts in
+    points are worked out anew from Tk's scaling on X11 and Windows, where this runs (it
+    passed on windows-latest); Tk on macOS sizes them in Quartz points whatever the scaling,
+    and freerdp-tk follows the DPI on Windows only."""
     from tkinter import font
 
     from freerdp_tk import app
     ui = make_ui()
     root = ui.root
+    screen = (root.winfo_screenwidth(), root.winfo_screenheight())
+    assert screen[0] >= 600 and screen[1] >= 450, f"screen {screen} too small for the test"
     root.tk.call("tk", "scaling", 96 / 72)
     pixels = font.Font(root, name="dpi_test_pixels", family="TkDefaultFont", size=-12)
     points = font.Font(root, name="dpi_test_points", family="TkDefaultFont", size=10)
     points.configure(size=10)  # measured at 96 DPI
     tall = points.metrics("linespace")
-    root.wm_minsize(400, 300)
-    root.geometry("800x600")
+    root.wm_minsize(200, 150)
+    root.geometry("400x300")
     root.update()
-    assert (root.winfo_width(), root.winfo_height()) == (800, 600)
+    assert (root.winfo_width(), root.winfo_height()) == (400, 300)
     assert app.rescale_tk(root, 96, 144) is True
     root.update()
     assert float(root.tk.call("tk", "scaling")) == pytest.approx(2.0, abs=0.01)  # Tk keeps px/mm
     assert int(pixels.cget("size")) == -18 and int(points.cget("size")) == 10
-    assert points.metrics("linespace") > tall  # 10 points are more pixels at 144 DPI
-    assert (root.winfo_width(), root.winfo_height()) == (1200, 900)
-    assert root.wm_minsize() == (600, 450)
+    if root.tk.call("tk", "windowingsystem") != "aqua":
+        assert points.metrics("linespace") > tall  # 10 points are more pixels at 144 DPI
+    assert (root.winfo_width(), root.winfo_height()) == (600, 450), \
+        f"screen {screen}, maxsize {root.wm_maxsize()}"
+    assert root.wm_minsize() == (300, 225)
     assert app.rescale_tk(root, 96, 144) is False  # Tk is there already: not twice
     assert int(pixels.cget("size")) == -18
 

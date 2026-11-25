@@ -51,8 +51,11 @@ if sys.argv[1:] == ["/version"]:
     print(f"This is FreeRDP version {os.environ.get('FAKE_VERSION', '3.99.0')} (fake)")
     sys.exit(0)
 stdin = sys.stdin.read()
-with open(os.environ["FAKE_RECORD"], "w") as f:
+# written whole, then renamed into place: a test waits for the file to exist, and must
+# never read it half written (open() makes it empty before json.dump fills it)
+with open(os.environ["FAKE_RECORD"] + ".part", "w", encoding="utf-8") as f:
     json.dump({"argv": sys.argv, "stdin": stdin}, f)
+os.replace(os.environ["FAKE_RECORD"] + ".part", os.environ["FAKE_RECORD"])
 reject = os.environ.get("FAKE_REJECT")
 if reject and "/p:" + reject in stdin.splitlines():
     sys.exit(int(os.environ.get("FAKE_REJECT_CODE", "132")))
