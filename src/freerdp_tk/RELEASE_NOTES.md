@@ -7,7 +7,7 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 ## Unreleased
 
-- Under the hood: the bundled client is FreeRDP 20261125.4 (rdp-release-kit 20261125.9).
+- Under the hood: the bundled client is FreeRDP 20261125.5 (rdp-release-kit 20261126.1).
 
 ## 20261125.2
 
