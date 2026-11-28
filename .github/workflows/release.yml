@@ -9,6 +9,10 @@
 # client-bump.yml starts it by workflow_dispatch on the tag (`--ref <tag> -f tag=<tag>`):
 # a tag it pushes with GITHUB_TOKEN starts no workflow. Its test.yml runs are
 # workflow_dispatch runs too, so the gate takes either event, on main, on that commit.
+# A try run (`gh workflow run release.yml --ref main -f try=true`) builds, bundles and
+# smokes that commit on every platform and publishes nothing: run it before a tag
+# (client-bump.yml does), since the smoke is the only place a wheel's client is
+# started on macOS and Windows (20261128.1 was spent on a macOS wheel that could not).
 name: release
 
 on:
@@ -18,7 +22,12 @@ on:
     inputs:
       tag:
         description: the dated tag to release, yyyymmdd.N; run with --ref set to that tag
-        required: true
+        required: false
+        default: ""
+      try:
+        description: build, bundle and smoke this ref only, publish nothing (before a tag)
+        type: boolean
+        default: false
 
 env:
   # uv's own Python builds include Tk; the runners' system Pythons may not.
@@ -28,6 +37,7 @@ jobs:
   # The test run of this commit's push to main: waited for, then it must be green.
   # Not a second run of the tests here: what publishes is what was seen green on main.
   tested:
+    if: ${{ !inputs.try }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -73,6 +83,7 @@ jobs:
         with:
           fetch-depth: 0  # the version is derived from the git tags
       - name: The release notes have a section for this tag
+        if: ${{ !inputs.try }}
         run: |
           awk -v head="## $GITHUB_REF_NAME" '$0 == head {on = 1; next} /^## / {if (on) exit} on' \
             src/freerdp_tk/RELEASE_NOTES.md > notes.md
@@ -81,7 +92,8 @@ jobs:
             exit 1
           fi
           cat notes.md
-      - uses: actions/upload-artifact@v6
+      - if: ${{ !inputs.try }}
+        uses: actions/upload-artifact@v6
         with:
           name: notes
           path: notes.md
@@ -134,7 +146,7 @@ jobs:
           "
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/')
+    if: ${{ startsWith(github.ref, 'refs/tags/') && !inputs.try }}
     needs: [tested, build, smoke]
     runs-on: ubuntu-latest
     environment: pypi

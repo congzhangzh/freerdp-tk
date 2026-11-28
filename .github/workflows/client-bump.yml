@@ -168,6 +168,9 @@ jobs:
           git commit -am "Release notes: $tag"
           git push origin HEAD:main
           scripts/dispatch_and_wait.sh test.yml "$(git rev-parse HEAD)"
+          # the wheels' own clients started on every platform before the tag, not after
+          # (20261128.1 was tagged, then its macOS wheel could not start its client)
+          scripts/dispatch_and_wait.sh release.yml "$(git rev-parse HEAD)" -f try=true
           git tag -a "$tag" -m "freerdp-tk $tag: the client of rdp-release-kit $RELEASE (FreeRDP $FREERDP)"
           git push origin "$tag"
           gh workflow run release.yml --ref "$tag" -f tag="$tag"

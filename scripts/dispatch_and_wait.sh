@@ -3,9 +3,11 @@
 # when that run is green. For client-bump.yml: a push made with GITHUB_TOKEN starts
 # no workflow, but GITHUB_TOKEN may start one by workflow_dispatch.
 #   scripts/dispatch_and_wait.sh test.yml <sha>
+#   scripts/dispatch_and_wait.sh release.yml <sha> -f try=true   (inputs go to gh workflow run)
 set -uo pipefail
 workflow=$1 sha=$2
-gh workflow run "$workflow" --ref main || exit 1
+shift 2
+gh workflow run "$workflow" --ref main "$@" || exit 1
 for _ in $(seq 180); do  # 45 min at most: test.yml takes about 5
   sleep 15
   run=$(gh run list --workflow "$workflow" --commit "$sha" --branch main --event workflow_dispatch \
