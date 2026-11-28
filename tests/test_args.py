@@ -412,3 +412,14 @@ def test_the_camera_is_shared_only_when_ticked():
     assert app.FIELDS["camera"] is False
     assert not any(x.startswith("/dvc:rdpecam") for x in build_args({"host": "h"}, ""))
     assert "/dvc:rdpecam" in build_args({"host": "h", "camera": True}, "")
+    # a client without the camera channel gets none
+    assert "/dvc:rdpecam" not in build_args({"host": "h", "camera": True}, "", camera=False)
+
+
+@pytest.mark.parametrize("said, has", [
+    ("Build configuration: WITH_FFMPEG=ON CHANNEL_RDPECAM=ON CHANNEL_RDPECAM_CLIENT=ON", True),
+    ("Build configuration: WITH_FFMPEG=ON CHANNEL_RDPECAM_CLIENT=OFF", False),
+    ("Build configuration: WITH_FFMPEG=ON WITH_GFX_AZURE=ON", False),  # before 20261128.2
+])
+def test_the_camera_channel_is_read_from_buildconfig(said, has):
+    assert (app.CAMERA_BUILT in said) is has

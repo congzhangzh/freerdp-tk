@@ -280,6 +280,9 @@ TEXTS = {
         "Play remote sound here": "在本机播放远程声音",
         "Microphone": "麦克风",
         "Camera": "摄像头",
+        "no camera": "没有摄像头",
+        "{session}: no camera (this client cannot share one; it needs FreeRDP {version} or newer)":
+            "{session}：没有摄像头（这个客户端无法共享摄像头；需要 FreeRDP {version} 或更新版本）",
         "Share this computer's camera": "共享这台电脑的摄像头",
         "Share home folder": "共享主目录",
         "Share folder": "共享文件夹",
@@ -532,6 +535,9 @@ TEXTS = {
         "Play remote sound here": "リモートの音をここで鳴らす",
         "Microphone": "マイク",
         "Camera": "カメラ",
+        "no camera": "カメラなし",
+        "{session}: no camera (this client cannot share one; it needs FreeRDP {version} or newer)":
+            "{session}: カメラなし（このクライアントはカメラを共有できません。FreeRDP {version} 以降が必要です）",
         "Share this computer's camera": "このコンピューターのカメラを共有する",
         "Share home folder": "ホームフォルダーを共有",
         "Share folder": "共有フォルダー",
@@ -782,6 +788,9 @@ TEXTS = {
         "Play remote sound here": "Jouer ici le son distant",
         "Microphone": "Microphone",
         "Camera": "Caméra",
+        "no camera": "pas de caméra",
+        "{session}: no camera (this client cannot share one; it needs FreeRDP {version} or newer)":
+            "{session} : pas de caméra (ce client ne peut pas en partager ; il faut FreeRDP {version} ou plus récent)",
         "Share this computer's camera": "Partager la caméra de cet ordinateur",
         "Share home folder": "Partager le dossier personnel",
         "Share folder": "Partager un dossier",

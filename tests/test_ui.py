@@ -935,3 +935,35 @@ def test_the_camera_is_saved_per_connection(make_ui, fake_client):
     assert again._launch("lab", again._form(), "s3cret!") is True
     pump(again, fake_client.exists)
     assert "/dvc:rdpecam" in json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
+
+
+@pytest.mark.parametrize("old", [False, True])
+def test_the_camera_needs_a_client_with_the_channel(make_ui, fake_client, monkeypatch, old):
+    """The client gets /dvc:rdpecam when its /buildconfig lists the camera channel; one
+    without it connects without the camera, and the log and Running say so (never
+    silent, never refused). The command preview shows what is sent."""
+    from freerdp_tk import app
+    if old:
+        monkeypatch.setenv("FAKE_NO_CAMERA", "1")
+    monkeypatch.setenv("FAKE_SAY", "[INFO][fake] - session up")
+    monkeypatch.setenv("FAKE_STAY", "3")
+    ui = make_ui()
+    assert ui._launch("demo", {"host": "rdp.example.com", "camera": True}, "s3cret!") is True
+    session = ui.sessions[0]
+    dot = app.GLYPHS["dot"]
+    assert ui.running_list.get(0) == (f"{session.label} {dot} no camera" if old
+                                      else session.label)
+    assert ui.camera_note.cget("text") == (
+        f"{session.label}: no camera (this client cannot share one; it needs FreeRDP "
+        "20261128.2 or newer)" if old else "")
+    pump(ui, fake_client.exists)
+    stdin = json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
+    assert ("/dvc:rdpecam" in stdin) is not old
+    said = "has no camera channel (FreeRDP 20261128.2 and newer); connecting without the camera"
+    assert (said in log_text(ui)) is old
+    pump(ui, lambda: not ui.sessions)
+    assert ui.camera_note.cget("text") == ""  # gone with the session
+    ui.vars["host"].set("rdp.example.com")
+    ui.vars["camera"].set(True)
+    pump(ui, lambda: "rdp.example.com" in ui.preview.get("1.0", "end"))
+    assert ("/dvc:rdpecam" in ui.preview.get("1.0", "end")) is not old

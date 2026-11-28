@@ -244,6 +244,10 @@ STATS_ARG = "+sdl-info"
 # This computer's cameras for the remote desktop (MS-RDPECAM): the client announces each
 # camera it has and the remote app picks one, so a tick is all it takes. Off by default.
 CAMERA_ARG = "/dvc:rdpecam"
+# A client has the camera channel when its /buildconfig says so (FreeRDP lists its CHANNEL_
+# options there since release-20261128.2); /help does not name channels.
+CAMERA_BUILT = "CHANNEL_RDPECAM_CLIENT=ON"
+CAMERA_SINCE = "20261128.2"  # the kit's first FreeRDP with the camera channel and that line
 # What a FreeRDP server measured, sent over its statistics channel (FreeRDP::Advanced::Stats,
 # the kit's FreeRDP since 20261121.5): the overlay's rows Server frames and Server times.
 # The flag opens the client's end only; a server without the channel never opens its own,
@@ -263,6 +267,19 @@ def client_help(client: str) -> str | None:
         return None
     text = done.stdout + done.stderr
     return text if STATS_ARG in text or "/args-from" in text else None
+
+
+def client_buildconfig(client: str) -> str | None:
+    """What the client's /buildconfig says (its build options); None when it cannot be told
+    (no answer in time, no build configuration in what it said)."""
+    try:
+        done = subprocess.run([client, "/buildconfig"], capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=VERSION_TIMEOUT, **no_console())
+    except (OSError, subprocess.SubprocessError):
+        return None
+    text = done.stdout + done.stderr
+    return text if "Build configuration:" in text else None
 
 
 def has_stats(client: str) -> bool | None:
@@ -462,12 +479,14 @@ def resolve_client(choice: str, clients: list[str], versions: dict[str, int],
 
 
 def gather(choice: str, clients: list[str], versions: dict[str, int], helps: dict[str, str],
-           cannot_start: dict[str, str], screen: tuple[int, int]) -> dict:
+           cannot_start: dict[str, str], screen: tuple[int, int],
+           buildconfigs: dict[str, str] | None = None, camera: bool = False) -> dict:
     """All Connect asks the client programs, each of which can take seconds to start (more
     on a busy computer), so the window asks it on another thread and stays responsive:
     the versions (Auto's walk, or the chosen client's), the client to run, its /help (None
-    when it could not be read) and whether the desktop has no monitor (a 0x0 screen that
-    /list:monitor confirms). The window's caches go in as copies; it merges the answers."""
+    when it could not be read), with camera its /buildconfig (whether it has the camera
+    channel), and whether the desktop has no monitor (a 0x0 screen that /list:monitor
+    confirms). The window's caches go in as copies; it merges the answers."""
     unknown = {}
     if choice.strip() in ("", AUTO):
         versions, unknown, cannot_start = ask_versions(clients, versions)
@@ -481,9 +500,12 @@ def gather(choice: str, clients: list[str], versions: dict[str, int], helps: dic
     text = helps.get(client) if client else None
     if client and text is None:
         text = client_help(client)
+    built = (buildconfigs or {}).get(client) if client else None
+    if client and camera and built is None:
+        built = client_buildconfig(client)
     return {"versions": versions, "unknown": unknown, "cannot_start": cannot_start,
             "auto": choice.strip() in ("", AUTO), "client": client, "help": text,
-            "no_monitor": bool(client) and no_monitor(screen, client)}
+            "buildconfig": built, "no_monitor": bool(client) and no_monitor(screen, client)}
 
 
 def client_major_version(client: str) -> int | None:
@@ -893,11 +915,12 @@ def split_extra(text: str) -> list[str]:
 
 
 def build_args(v: dict, password: str, values: dict | None = None,
-               server_stats: bool = True) -> list[str]:
+               server_stats: bool = True, camera: bool = True) -> list[str]:
     """Client arguments for the connection settings v, without the program name.
 
     values fills the placeholders in the proxy and the extra arguments. server_stats:
     with live stats, also the server's rows (+astats); False for a client without them.
+    camera: False for a client without the camera channel, which then gets none.
     """
     v = {**FIELDS, **v}
     args = [f"/v:{v['host'].strip()}"]
@@ -942,7 +965,7 @@ def build_args(v: dict, password: str, values: dict | None = None,
         args.append("/sound")
     if v["microphone"]:
         args.append("/microphone")
-    if v["camera"]:
+    if v["camera"] and camera:
         args.append(CAMERA_ARG)
     if v["home_drive"]:
         args.append("+home-drive")
@@ -1441,6 +1464,7 @@ class Session:
         self.decoding = ""  # the kind of video decoder it says it runs, once it says so
         self.hidpi: dict[str, tuple[str, str]] = {}  # display id -> (mode, the rest), as said
         self.no_server_rows = False  # live stats, but the client has no +astats
+        self.no_camera = False  # the camera ticked, but the client has no camera channel
         threading.Thread(target=self._run, daemon=True).start()
 
     def say(self, text: str):
@@ -1622,10 +1646,12 @@ class App(ttk.Frame):
         self.helps: dict[str, str] = {}  # client -> its /help, once it could be read
         self.decoders: dict[str, list[str]] = {}  # client -> its /codec-list, once known
         self.asking: set[str] = set()  # connections whose client programs are being asked
+        self.buildconfigs: dict[str, str] = {}  # client -> its /buildconfig, once read
         self.asking_decoders: set[str] = set()  # clients asked for /codec-list right now
         self.decoder_session: Session | None = None  # whose decoder the live view shows
         self.hidpi_session: Session | None = None  # whose HiDPI modes it shows
         self.rows_session: Session | None = None  # whose missing server rows it shows
+        self.camera_session: Session | None = None  # whose missing camera it shows
         self.clients = find_clients()
         self.keyring = credentials.Worker()  # keyring calls, off the Tk thread
         self.keyring_problem: str | None = None  # "" when passwords can be saved; None: unknown
@@ -1737,6 +1763,9 @@ class App(ttk.Frame):
         # cannot add a row to the client's own overlay, so it says so here, where Running is
         self.rows_note = ttk.Label(left, text="", wraplength=200, justify="left")
         self.rows_note.pack(anchor="w", fill="x")
+        # the camera ticked, but the client cannot share one: said here, not left silent
+        self.camera_note = ttk.Label(left, text="", wraplength=200, justify="left")
+        self.camera_note.pack(anchor="w", fill="x")
         panes.add(left, weight=0)
         right = ttk.Frame(panes)
         ttk.Label(right, text=tr("Log")).pack(anchor="w")
@@ -2096,7 +2125,8 @@ class App(ttk.Frame):
         """gather()'s arguments for the connection v: copies of the window's caches as they
         are now, read on the Tk thread."""
         return (v["client"], list(self.clients), dict(self.versions), dict(self.helps),
-                dict(self.cannot_start), (self.winfo_screenwidth(), self.winfo_screenheight()))
+                dict(self.cannot_start), (self.winfo_screenwidth(), self.winfo_screenheight()),
+                dict(self.buildconfigs), bool(v.get("camera")))
 
     def _take(self, asked: dict):
         """Keep what gather() learnt: the versions it could tell, the clients Auto passed
@@ -2106,13 +2136,22 @@ class App(ttk.Frame):
             self.cannot_start = dict(asked["cannot_start"])
         if asked["client"] and asked["help"] is not None:
             self.helps[asked["client"]] = asked["help"]
+        if asked["client"] and asked.get("buildconfig") is not None:
+            self.buildconfigs[asked["client"]] = asked["buildconfig"]
+
+    def _has_camera(self, client: str) -> bool:
+        """Whether the client has the camera channel, by its /buildconfig. One that could
+        not be read is tried (like _knows); one that says nothing of it has none."""
+        text = self.buildconfigs.get(client)
+        return True if text is None else CAMERA_BUILT in text
 
     def _command_text(self) -> str:
         v = self._form()
         client = self._resolve_client(v["client"]) or tr("<no client found>")
         try:
             args = build_args(v, HIDDEN if self.password.get() else "",
-                              server_stats=self._knows(client, SERVER_STATS_ARG))
+                              server_stats=self._knows(client, SERVER_STATS_ARG),
+                              camera=self._has_camera(client))
         except ValueError as e:  # unbalanced quotes in the extra arguments
             return tr("error in extra arguments: {error}", error=e)
         return join_command([client, *args])
@@ -2235,6 +2274,13 @@ class App(ttk.Frame):
                                     "{arrow} Show live stats, or pick a newer client.",
                                     name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
+        if v["camera"] and client not in self.buildconfigs:
+            self._log(f"{name}: could not tell whether {client} has the camera channel; "
+                      "trying it")
+        elif v["camera"] and not self._has_camera(client):
+            # without the channel the client would get an argument it cannot use
+            self._log(f"{name}: {client} has no camera channel (FreeRDP {CAMERA_SINCE} and "
+                      "newer); connecting without the camera")
         if v["stats"] and not self._knows(client, SERVER_STATS_ARG):
             # the overlay without the server's rows: the client would stop on the argument
             self._log(f"{name}: {client} has no {SERVER_STATS_ARG} (FreeRDP 20261121.5 and "
@@ -2296,7 +2342,8 @@ class App(ttk.Frame):
                   "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
             server_stats = self._knows(client, SERVER_STATS_ARG)
-            args = build_args(v, password or "", values, server_stats)
+            camera = self._has_camera(client)
+            args = build_args(v, password or "", values, server_stats, camera)
         except ValueError as e:
             messagebox.showerror(APP, tr("{name}: extra arguments: {error}", name=name, error=e))
             return False
@@ -2304,13 +2351,20 @@ class App(ttk.Frame):
             messagebox.showerror(APP, tr("{name}: values must not contain line breaks.", name=name))
             return False
 
-        shown = build_args(v, HIDDEN if password else "", values, server_stats)
+        shown = build_args(v, HIDDEN if password else "", values, server_stats, camera)
         notes = [f"started: {join_command([client, *shown])}"]
         stdin = "".join(a + "\n" for a in args)
         session = Session(name, v, values, [client, "/args-from:stdin"], stdin, notes,
                           self.output)
         self.sessions.append(session)
         self.running_list.insert("end", session.label)
+        if v["camera"] and not camera:  # asked for, but this client cannot share one
+            session.no_camera = True
+            self._relabel(session)
+            self.camera_session = session
+            self.camera_note.configure(text=tr(
+                "{session}: no camera (this client cannot share one; it needs FreeRDP {version} "
+                "or newer)", session=session.label, version=CAMERA_SINCE))
         if v["stats"] and not server_stats:  # where the overlay's server rows would be
             session.no_server_rows = True
             self._relabel(session)
@@ -2375,6 +2429,9 @@ class App(ttk.Frame):
                     if self.rows_session is session:
                         self.rows_session = None
                         self.rows_note.configure(text="")
+                    if self.camera_session is session:
+                        self.camera_session = None
+                        self.camera_note.configure(text="")
                     if self.hidpi_session is session:
                         self.hidpi_session = None
                         self.hidpi_live.configure(text="")
@@ -2420,7 +2477,8 @@ class App(ttk.Frame):
         self.running_list.delete(index)
         self.running_list.insert(index, f" {GLYPHS['dot']} ".join(
             part for part in (session.label, session.decoding, hidpi,
-                              tr("no server rows") if session.no_server_rows else "") if part))
+                              tr("no server rows") if session.no_server_rows else "",
+                              tr("no camera") if session.no_camera else "") if part))
         if picked:
             self.running_list.selection_set(index)
 

@@ -9,6 +9,8 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 - **Camera.** *Devices* has a new *Camera*, off by default. Ticked, the remote desktop can
   use this computer's cameras: the client offers each of them and the remote app picks one.
+  A client older than FreeRDP 20261128.2 cannot share a camera: freerdp-tk then connects
+  without it, and *Running* says so.
 
 ## 20261128.1
 
