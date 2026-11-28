@@ -5,16 +5,17 @@ Before a tag, rename "Unreleased" to that version: a release without its section
 before anything is published. The window shows these notes under *About*.
 Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, with the date.
 
-## Unreleased
+## 20261128.2
 
 - **Camera.** *Devices* has a new *Camera*, off by default. Ticked, the remote desktop can
   use this computer's cameras: the client offers each of them and the remote app picks one.
   A client older than FreeRDP 20261128.2 cannot share a camera: freerdp-tk then connects
   without it, and *Running* says so.
-
-## 20261128.1
-
-- Under the hood: the bundled client is FreeRDP 20261128.2 (rdp-release-kit 20261128.1).
+- Under the hood: the bundled client is FreeRDP 20261128.2 (rdp-release-kit 20261128.1),
+  the first with the camera channel. On macOS it now comes as an app, FreeRDP.app, inside
+  the wheel. (20261128.1 was tagged but never published: its macOS wheel lacked that app
+  and could not start its client. A trial build now starts every wheel's client before a
+  tag.)
 
 ## 20261127.1
 
