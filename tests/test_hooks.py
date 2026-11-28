@@ -48,6 +48,17 @@ def ended(ui):
     return lambda: ui.running_list.size() == 0
 
 
+def listened_before_the_client(pidfile, record) -> bool:
+    """The client started once the port listened: the tunnel writes its pid file right after
+    listen(), and the fake client records when it ran. Not the order of the log lines: the
+    tunnel prints after listen(), and its line, read on another thread, can come after
+    "started:" (it did on windows-latest, 2026-11-26)."""
+    listening = pidfile.stat().st_mtime
+    started = json.loads(record.read_text(encoding="utf-8"))["time"]
+    assert listening <= started, f"the client ran {listening - started:.3f} s before the port"
+    return True
+
+
 def test_tunnel_runs_beside_the_session_and_is_stopped(make_ui, fake_client, home):
     script, pidfile, after = home / "tunnel.py", home / "tunnel.pid", home / "after.txt"
     script.write_text(TUNNEL, encoding="utf-8")
@@ -67,7 +78,8 @@ def test_tunnel_runs_beside_the_session_and_is_stopped(make_ui, fake_client, hom
     assert f"/proxy:socks5://127.0.0.1:{port}" in got["stdin"].splitlines()
     assert "before: stopped" in log and not alive(int(pidfile.read_text(encoding="utf-8")))
     assert after.read_text(encoding="utf-8").strip() == "bye rdp.example.com"
-    order = [log.index(s) for s in ("tunnel up", "started:", "exited with code 7",
+    assert listened_before_the_client(pidfile, fake_client)
+    order = [log.index(s) for s in ("started:", "exited with code 7",
                                     "before: stopped", "after: exited with code 0")]
     assert order == sorted(order)
 
@@ -109,10 +121,9 @@ def test_wait_also_follows_a_command_that_runs_to_its_end(make_ui, fake_client, 
          pre_wait="127.0.0.1:%L")
     click(ui, button(ui, "Connect"))
     pump(ui, ended(ui))
-
-    log = log_text(ui)
-    assert log.index("tunnel up") < log.index("started:")
-    assert fake_client.exists() and not alive(int(pidfile.read_text(encoding="utf-8")))
+    pump(ui, lambda: "tunnel up" in log_text(ui))  # its output, read on another thread
+    assert listened_before_the_client(pidfile, fake_client)
+    assert not alive(int(pidfile.read_text(encoding="utf-8")))
 
 
 def test_wait_for_output(make_ui, fake_client, home):
