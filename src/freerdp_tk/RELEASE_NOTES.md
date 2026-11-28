@@ -9,9 +9,8 @@ Releases before 2026-11-07 had `0.x` tags; their sections keep those versions, w
 
 - **H.265 (HEVC) when you ask for it.** The bundled client on Windows, Linux and macOS can
   now show the remote desktop in H.265. AV1 stays the default; to use H.265 with a server
-  that offers it, put `/gfx-codec-order:HEVC,AVC420` (or `/gfx:HEVC:i420`) in *Advanced →
-  Extra arguments*. On Windows the client uses Microsoft's H.265 decoder where it is
-  installed, else its own.
+  that offers it, put `/gfx-codec-order:HEVC,AVC420` in *Advanced → Extra arguments*. On
+  Windows the client uses Microsoft's H.265 decoder where it is installed, else its own.
 - Under the hood: the bundled client is FreeRDP 20261127.3 (rdp-release-kit 20261127.3). Its
   Linux and Windows builds carry FFmpeg's video decoders (LGPL), about 1 MB more per wheel.
   (20261126.3 was dated here but never released; its client, FreeRDP 20261126.1, is part of
