@@ -109,7 +109,7 @@ FIELDS = {  # name -> default; everything a saved connection stores
     "multimon": False, "multimon_mode": SEPARATE, "monitors": "", "gfx": "(default)",
     "decoding": HARDWARE_FIRST, "gpu": ANY_GPU, "hidpi": FOLLOW_OS, "hidpi_scale": "150",
     "hidpi_monitors": "", "stats": False, "clipboard": True, "sound": True,
-    "microphone": False, "home_drive": False, "drive": "", "log_level": "(default)",
+    "microphone": False, "camera": False, "home_drive": False, "drive": "", "log_level": "(default)",
     "extra": "", "proxy": "", "pre": "", "pre_async": False, "pre_cleanup": True,
     "pre_wait_kind": WAIT_PORT, "pre_wait": "", "pre_timeout": "", "post": "",
     "remember_password": True,
@@ -241,6 +241,9 @@ def stats_keys() -> str | None:
 
 
 STATS_ARG = "+sdl-info"
+# This computer's cameras for the remote desktop (MS-RDPECAM): the client announces each
+# camera it has and the remote app picks one, so a tick is all it takes. Off by default.
+CAMERA_ARG = "/dvc:rdpecam"
 # What a FreeRDP server measured, sent over its statistics channel (FreeRDP::Advanced::Stats,
 # the kit's FreeRDP since 20261121.5): the overlay's rows Server frames and Server times.
 # The flag opens the client's end only; a server without the channel never opens its own,
@@ -939,6 +942,8 @@ def build_args(v: dict, password: str, values: dict | None = None,
         args.append("/sound")
     if v["microphone"]:
         args.append("/microphone")
+    if v["camera"]:
+        args.append(CAMERA_ARG)
     if v["home_drive"]:
         args.append("+home-drive")
     if v["drive"].strip():
@@ -1997,12 +2002,15 @@ class App(ttk.Frame):
         self._check(f, 0, tr("Clipboard"), "clipboard")
         self._check(f, 1, tr("Play remote sound here"), "sound")
         self._check(f, 2, tr("Microphone"), "microphone")
-        self._check(f, 3, tr("Share home folder"), "home_drive")
+        self._check(f, 3, tr("Camera"), "camera")
+        ttk.Label(f, text=tr("Share this computer's camera"), foreground="gray").grid(
+            row=4, column=1, sticky="w")
+        self._check(f, 5, tr("Share home folder"), "home_drive")
         drive = ttk.Frame(f)
         ttk.Entry(drive, textvariable=self.vars["drive"]).pack(side="left", fill="x", expand=True)
         ttk.Button(drive, text=GLYPHS["dots"], width=3,
                    command=self._browse_drive).pack(side="left")
-        self._row(f, 4, tr("Share folder"), drive, "drive")
+        self._row(f, 6, tr("Share folder"), drive, "drive")
         return f
 
     def _advanced_tab(self, parent):

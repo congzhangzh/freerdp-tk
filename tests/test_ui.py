@@ -904,3 +904,34 @@ def test_live_stats_get_the_server_rows_unless_the_client_is_too_old(make_ui, fa
     ui.vars["stats"].set(True)
     pump(ui, lambda: "+sdl-info" in ui.preview.get("1.0", "end"))
     assert ("+astats" in ui.preview.get("1.0", "end")) is not old
+
+
+def test_the_camera_is_saved_per_connection(make_ui, fake_client):
+    """Devices: Camera, off by default, passes /dvc:rdpecam, is kept with each saved
+    connection, and reaches the client."""
+    ui = make_ui()
+    box = next(w for w in widgets(ui) if w.winfo_class() == "TCheckbutton"
+               and w.cget("text") == "Camera")
+    assert ui.vars["camera"].get() is False
+    type_into(ui, entry_for(ui, ui.name), "lab")
+    type_into(ui, entry_for(ui, ui.vars["host"]), "rdp.example.com")
+    ui.tabs.select(box.master)  # the Devices tab, as a user would open it
+    ui.root.update()
+    assert "/dvc:rdpecam" not in ui.preview.get("1.0", "end")
+    click(ui, box)
+    pump(ui, lambda: ui.vars["camera"].get())
+    assert "/dvc:rdpecam" in ui.preview.get("1.0", "end")
+    click(ui, button(ui, "Save"))
+    ui.name.set("other")
+    click(ui, box)
+    pump(ui, lambda: not ui.vars["camera"].get())
+    click(ui, button(ui, "Save"))
+    stored = json.loads(ui.store.read_text(encoding="utf-8"))
+    assert stored["lab"]["camera"] is True and stored["other"]["camera"] is False
+    again = make_ui()
+    again.saved_list.selection_set(again.visible.index("lab"))
+    again._on_select()
+    assert again.vars["camera"].get() is True
+    assert again._launch("lab", again._form(), "s3cret!") is True
+    pump(again, fake_client.exists)
+    assert "/dvc:rdpecam" in json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()

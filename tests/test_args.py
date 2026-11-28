@@ -405,3 +405,10 @@ def test_live_stats_ask_for_the_server_rows_too():
     assert stats(build_args({"host": "h", "stats": True}, "", server_stats=False)) == \
         ["+sdl-info"]
     assert stats(build_args({"host": "h"}, "")) == []
+
+
+def test_the_camera_is_shared_only_when_ticked():
+    """Off by default: no camera leaves this computer unless the connection asks for it."""
+    assert app.FIELDS["camera"] is False
+    assert not any(x.startswith("/dvc:rdpecam") for x in build_args({"host": "h"}, ""))
+    assert "/dvc:rdpecam" in build_args({"host": "h", "camera": True}, "")
