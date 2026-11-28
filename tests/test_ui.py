@@ -967,3 +967,25 @@ def test_the_camera_needs_a_client_with_the_channel(make_ui, fake_client, monkey
     ui.vars["camera"].set(True)
     pump(ui, lambda: "rdp.example.com" in ui.preview.get("1.0", "end"))
     assert ("/dvc:rdpecam" in ui.preview.get("1.0", "end")) is not old
+
+
+def test_the_camera_is_not_tried_when_the_client_cannot_be_asked(make_ui, fake_client,
+                                                                monkeypatch):
+    """A /buildconfig that cannot be read: connect without the camera, since a client
+    without the channel, given /dvc:rdpecam, does not connect at all (FreeRDP 20261127.3:
+    "Failed to load channel rdpecam", ERRCONNECT_POST_CONNECT_FAILED). Running says "no
+    camera"; the log says why; no "needs FreeRDP" note, as the client may be new."""
+    from freerdp_tk import app
+    monkeypatch.setenv("FAKE_NO_BUILDCONFIG", "1")
+    monkeypatch.setenv("FAKE_SAY", "[INFO][fake] - session up")
+    monkeypatch.setenv("FAKE_STAY", "3")
+    ui = make_ui()
+    assert ui._launch("demo", {"host": "rdp.example.com", "camera": True}, "s3cret!") is True
+    session = ui.sessions[0]
+    assert ui.running_list.get(0) == f"{session.label} {app.GLYPHS['dot']} no camera"
+    assert ui.camera_note.cget("text") == ""
+    pump(ui, fake_client.exists)
+    stdin = json.loads(fake_client.read_text(encoding="utf-8"))["stdin"].splitlines()
+    assert "/dvc:rdpecam" not in stdin
+    assert "could not tell whether" in log_text(ui)
+    assert "connecting without the camera" in log_text(ui)

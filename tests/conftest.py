@@ -48,6 +48,8 @@ if sys.argv[1:] == ["/help"]:  # FreeRDP 3's; $FAKE_NO_STATS: no overlay, $FAKE_
             print("    +astats                           The server's statistics")
     sys.exit(0)
 if sys.argv[1:] == ["/buildconfig"]:  # $FAKE_NO_CAMERA: a client without the camera channel
+    if os.environ.get("FAKE_NO_BUILDCONFIG"):  # one that says nothing about its build
+        sys.exit(1)
     print("Build configuration: WITH_GFX_AV1=ON CHANNEL_AUDIN_CLIENT=ON"
           + ("" if os.environ.get("FAKE_NO_CAMERA") else " CHANNEL_RDPECAM_CLIENT=ON"))
     sys.exit(0)

@@ -2139,11 +2139,13 @@ class App(ttk.Frame):
         if asked["client"] and asked.get("buildconfig") is not None:
             self.buildconfigs[asked["client"]] = asked["buildconfig"]
 
-    def _has_camera(self, client: str) -> bool:
-        """Whether the client has the camera channel, by its /buildconfig. One that could
-        not be read is tried (like _knows); one that says nothing of it has none."""
+    def _has_camera(self, client: str) -> bool | None:
+        """Whether the client has the camera channel, by its /buildconfig; None when that
+        could not be read. Unknown is NOT tried, unlike _knows: a client without the
+        channel given /dvc:rdpecam fails to connect ("Failed to load channel rdpecam",
+        then ERRCONNECT_POST_CONNECT_FAILED; seen with FreeRDP 20261127.3)."""
         text = self.buildconfigs.get(client)
-        return True if text is None else CAMERA_BUILT in text
+        return None if text is None else CAMERA_BUILT in text
 
     def _command_text(self) -> str:
         v = self._form()
@@ -2151,7 +2153,7 @@ class App(ttk.Frame):
         try:
             args = build_args(v, HIDDEN if self.password.get() else "",
                               server_stats=self._knows(client, SERVER_STATS_ARG),
-                              camera=self._has_camera(client))
+                              camera=self._has_camera(client) is not False)
         except ValueError as e:  # unbalanced quotes in the extra arguments
             return tr("error in extra arguments: {error}", error=e)
         return join_command([client, *args])
@@ -2274,10 +2276,11 @@ class App(ttk.Frame):
                                     "{arrow} Show live stats, or pick a newer client.",
                                     name=name, client=client, arrow=GLYPHS["arrow"]))
             return False
-        if v["camera"] and client not in self.buildconfigs:
-            self._log(f"{name}: could not tell whether {client} has the camera channel; "
-                      "trying it")
-        elif v["camera"] and not self._has_camera(client):
+        if v["camera"] and self._has_camera(client) is None:
+            # given the camera, a client without the channel would not connect at all
+            self._log(f"{name}: could not tell whether {client} has the camera channel "
+                      "(no answer to /buildconfig); connecting without the camera")
+        elif v["camera"] and self._has_camera(client) is False:
             # without the channel the client would get an argument it cannot use
             self._log(f"{name}: {client} has no camera channel (FreeRDP {CAMERA_SINCE} and "
                       "newer); connecting without the camera")
@@ -2342,7 +2345,8 @@ class App(ttk.Frame):
                   "u": v["user"].strip(), "L": str(free_port()), "%": "%"}
         try:
             server_stats = self._knows(client, SERVER_STATS_ARG)
-            camera = self._has_camera(client)
+            has_camera = self._has_camera(client)
+            camera = has_camera is True
             args = build_args(v, password or "", values, server_stats, camera)
         except ValueError as e:
             messagebox.showerror(APP, tr("{name}: extra arguments: {error}", name=name, error=e))
@@ -2361,10 +2365,11 @@ class App(ttk.Frame):
         if v["camera"] and not camera:  # asked for, but this client cannot share one
             session.no_camera = True
             self._relabel(session)
-            self.camera_session = session
-            self.camera_note.configure(text=tr(
-                "{session}: no camera (this client cannot share one; it needs FreeRDP {version} "
-                "or newer)", session=session.label, version=CAMERA_SINCE))
+            if has_camera is False:  # known to lack it; unknown: the log says why
+                self.camera_session = session
+                self.camera_note.configure(text=tr(
+                    "{session}: no camera (this client cannot share one; it needs FreeRDP "
+                    "{version} or newer)", session=session.label, version=CAMERA_SINCE))
         if v["stats"] and not server_stats:  # where the overlay's server rows would be
             session.no_server_rows = True
             self._relabel(session)
