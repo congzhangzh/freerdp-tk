@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -66,6 +67,53 @@ def test_a_zip_gives_the_client_and_its_licences_only():
     assert bundle_client.archive_files(data, "x.zip") == {
         "sdl-freerdp.exe": b"program", "MANIFEST": b"built from",
         "licenses/freerdp/LICENSE": b"apache"}
+
+
+# kit 20261128.1 on: the Mac client is an app, and bin/sdl-freerdp runs it (the kit's own script)
+MAC_SCRIPT = b"""#!/bin/sh
+p=$0
+while [ -L "$p" ]; do
+    l=$(readlink "$p")
+    case $l in /*) p=$l ;; *) p=$(dirname "$p")/$l ;; esac
+done
+exec "$(dirname "$p")/../FreeRDP.app/Contents/MacOS/sdl-freerdp" "$@"
+"""
+MAC_APP = {"FreeRDP.app/Contents/Info.plist": b"<plist/>",
+           "FreeRDP.app/Contents/MacOS/sdl-freerdp": b'#!/bin/sh\necho "the app: $*"\n',
+           "FreeRDP.app/Contents/_CodeSignature/CodeResources": b"hashes of the files above",
+           "FreeRDP.app/Contents/Resources/fr.lproj/InfoPlist.strings": b"cam\xc3\xa9ra"}
+
+
+def test_a_mac_tar_gives_the_app_its_script_runs():
+    data = tar_xz({**KIT_FILES, "top/bin/sdl-freerdp": MAC_SCRIPT,
+                   **{"top/" + path: body for path, body in MAC_APP.items()}})
+    assert bundle_client.archive_files(data, "x.tar.xz") == {
+        "bin/sdl-freerdp": MAC_SCRIPT, "MANIFEST": b"built from",
+        "licenses/freerdp/LICENSE": b"apache", **MAC_APP}
+
+
+def test_the_mac_wheel_keeps_the_app_byte_for_byte_where_the_script_finds_it(tmp_path):
+    files = {"bin/sdl-freerdp": MAC_SCRIPT, "MANIFEST": b"m", **MAC_APP}
+    done = bundle_client.bundle(plain_wheel(tmp_path), "macosx_12_0_arm64", files, tmp_path)
+    with zipfile.ZipFile(done) as z:
+        mode = {i.filename: i.external_attr >> 16 for i in z.infolist()}
+        assert z.read("freerdp_tk/client/sdl-freerdp") == MAC_SCRIPT
+        for path, body in MAC_APP.items():  # the app's signature covers these bytes
+            assert z.read("freerdp_tk/" + path) == body
+        record = dict(line.split(",", 1) for line in z.read(f"{INFO}/RECORD").decode().split())
+        assert set(record) == set(mode)
+    program = "freerdp_tk/FreeRDP.app/Contents/MacOS/sdl-freerdp"
+    assert mode["freerdp_tk/client/sdl-freerdp"] == mode[program] == 0o100755
+    assert mode["freerdp_tk/FreeRDP.app/Contents/Info.plist"] == 0o100644
+    if sys.platform == "win32":
+        return  # no sh to run the script with; the path above is the same
+    with zipfile.ZipFile(done) as z:  # as an installer does: the files, with their modes
+        z.extractall(tmp_path / "site")
+    for path, bits in mode.items():
+        (tmp_path / "site" / path).chmod(bits & 0o777)
+    ran = subprocess.run([str(tmp_path / "site/freerdp_tk/client/sdl-freerdp"), "/v:x"],
+                         capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert (ran.returncode, ran.stdout) == (0, "the app: /v:x\n"), ran.stderr
 
 
 def test_the_wheel_is_tagged_and_recorded(tmp_path):

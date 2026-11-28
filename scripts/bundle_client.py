@@ -10,7 +10,12 @@ plain wheel, which finds the client on PATH as before.
 
 The clients are the portable builds of rdp-release-kit: one self-contained
 program each, so nothing has to be repaired the way auditwheel or delocate do
-for a program that loads libraries next to it. client.lock pins the release and
+for a program that loads libraries next to it. On macOS (kit 20261128.1 on) the
+program lives in FreeRDP.app, an app so that the camera prompt has its words,
+and bin/sdl-freerdp is a small script that runs ../FreeRDP.app/Contents/MacOS/
+sdl-freerdp: the wheel keeps both as the kit made them, byte for byte (the app's
+signature covers its files), the script as client/sdl-freerdp and the app beside
+client/, where the script looks for it. client.lock pins the release and
 the SHA-256 of every file, and a file that does not match stops the build. The
 plain wheel is repacked rather than built again, so `uv build` stays pure and a
 source checkout never holds a binary. Standard library only.
@@ -44,6 +49,7 @@ PLATFORMS = {
 # do not come along here: uv brings the Python, the wheel is freerdp-tk itself.
 NOT_THE_CLIENT = re.compile(r"(python_|freerdp_tk)")
 ZIP_TIME = (2020, 1, 1, 0, 0, 0)  # the same input gives the same wheel
+APP = "FreeRDP.app"  # macOS: the app the kit's bin/sdl-freerdp runs, from ../FreeRDP.app
 
 
 def fetch(url: str) -> bytes:
@@ -99,7 +105,8 @@ def archive_members(data: bytes, name: str):
 def archive_files(data: bytes, name: str) -> dict[str, bytes]:
     """Every file of a kit archive that belongs to the client, with paths
     relative to the archive's one top folder."""
-    wanted = re.compile(r"[^/]+/((?:bin/)?sdl-freerdp(?:\.exe)?|MANIFEST|licenses/.+)$")
+    wanted = re.compile(r"[^/]+/((?:bin/)?sdl-freerdp(?:\.exe)?|MANIFEST|licenses/.+|"
+                        rf"{re.escape(APP)}/.+)$")
     found = {}
     for path, contents in archive_members(data, name):
         match = wanted.match(path)
@@ -120,7 +127,7 @@ def bundle(wheel: Path, tag: str, files: dict[str, bytes], out: Path) -> Path:
     name, version = wheel.name.split("-")[:2]
     info = f"{name}-{version}.dist-info"
     target = out / f"{name}-{version}-py3-none-{tag}.whl"
-    programs = [p for p in files if Path(p).stem == "sdl-freerdp"]
+    programs = [p for p in files if Path(p).stem == "sdl-freerdp" and not p.startswith(APP + "/")]
     if len(programs) != 1:
         sys.exit(f"{tag}: expected one client, found {programs}")
     with zipfile.ZipFile(wheel) as z:
@@ -130,9 +137,13 @@ def bundle(wheel: Path, tag: str, files: dict[str, bytes], out: Path) -> Path:
     text = re.sub(r"^Tag: .*$", f"Tag: py3-none-{tag}", text, flags=re.MULTILINE)
     entries[f"{info}/WHEEL"] = text.replace("Root-Is-Purelib: true",
                                             "Root-Is-Purelib: false").encode()
+    # the app goes beside client/, so that client/sdl-freerdp finds it at ../FreeRDP.app
     client = {"freerdp_tk/client/" + Path(path).name if path in programs
+              else "freerdp_tk/" + path if path.startswith(APP + "/")
               else "freerdp_tk/client/" + path: data for path, data in files.items()}
-    executable = f"freerdp_tk/client/{Path(programs[0]).name}"
+    # an app's programs are the files in Contents/MacOS/ (Apple's layout)
+    executable = {f"freerdp_tk/client/{Path(programs[0]).name}",
+                  *(p for p in client if p.startswith(f"freerdp_tk/{APP}/Contents/MacOS/"))}
     ordered = [*sorted(p for p in {**entries, **client} if not p.startswith(info)),
                *sorted(p for p in entries if p.startswith(info))]
     merged = {**entries, **client}
@@ -142,7 +153,7 @@ def bundle(wheel: Path, tag: str, files: dict[str, bytes], out: Path) -> Path:
         for path in [*ordered, f"{info}/RECORD"]:
             entry = zipfile.ZipInfo(path, ZIP_TIME)
             entry.compress_type = zipfile.ZIP_DEFLATED
-            entry.external_attr = (0o100755 if path == executable else 0o100644) << 16
+            entry.external_attr = (0o100755 if path in executable else 0o100644) << 16
             z.writestr(entry, merged[path])
     return target
 
